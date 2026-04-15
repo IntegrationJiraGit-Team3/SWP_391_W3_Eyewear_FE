@@ -1,219 +1,391 @@
-import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
-import Chart from "react-apexcharts";
-
+import { useEffect, useMemo, useState } from "react";
 import {
+  FiCalendar,
   FiDollarSign,
-  FiShoppingCart,
-  FiUsers,
+  FiShoppingBag,
+  FiRefreshCcw,
+  FiCreditCard,
   FiTrendingUp,
-  FiArrowUpRight,
-  FiArrowDownRight,
-  FiCalendar, FiX
+  FiPackage,
+  FiXCircle,
 } from "react-icons/fi";
-
-import { useEffect, useState, useMemo } from "react";
+import Chart from "react-apexcharts";
+import { motion } from "framer-motion";
+import { getDashboardSummary } from "../services/dashboardService";
 import { getAllOrders } from "../services/orderService";
-import {
-  getCustomerCount,
-  getOrdersCount,
-  getTotalRevenue,
-} from "../services/dashboardService";
 
-/* ── animation helpers ── */
 const fadeUp = (delay = 0) => ({
   initial: { opacity: 0, y: 18 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.4, delay, ease: "easeOut" },
+  transition: { duration: 0.45, delay },
 });
 
-/* ── stat card config ── */
-const statCards = [
-  {
-    key: "revenue",
-    label: "Total Revenue",
-    icon: FiDollarSign,
-    color: "blue",
-    bg: "bg-blue-50",
-    text: "text-blue-600",
-    ring: "ring-blue-100",
-  },
-  {
-    key: "orders",
-    label: "Orders",
-    icon: FiShoppingCart,
-    color: "green",
-    bg: "bg-green-50",
-    text: "text-green-600",
-    ring: "ring-green-100",
-  },
-  {
-    key: "customers",
-    label: "Customers",
-    icon: FiUsers,
-    color: "yellow",
-    bg: "bg-yellow-50",
-    text: "text-yellow-600",
-    ring: "ring-yellow-100",
-  },
-  {
-    key: "growth",
-    label: "Avg Value",
-    icon: FiTrendingUp,
-    color: "purple",
-    bg: "bg-purple-50",
-    text: "text-purple-600",
-    ring: "ring-purple-100",
-  },
-];
+const ORDER_DATE_REGEX = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/;
 
-/* ── order status badge ── */
-const statusStyle = {
-  completed: "bg-green-50 text-green-700",
-  pending: "bg-yellow-50 text-yellow-700",
-  cancelled: "bg-red-50 text-red-700",
-  shipped: "bg-blue-50 text-blue-700",
-  processing: "bg-indigo-50 text-indigo-700",
+const parseOrderDate = (order) => {
+  if (
+    order?.rawDate instanceof Date &&
+    !Number.isNaN(order.rawDate.getTime())
+  ) {
+    return order.rawDate;
+  }
+
+  const fallbackDate = order?.orderDate || order?.createdAt || order?.date;
+
+  if (typeof fallbackDate === "string") {
+    const parts = fallbackDate.match(ORDER_DATE_REGEX);
+    if (parts) {
+      const [, day, month, year] = parts;
+      const parsedByParts = new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+      );
+      if (!Number.isNaN(parsedByParts.getTime())) return parsedByParts;
+    }
+  }
+
+  const parsed = fallbackDate ? new Date(fallbackDate) : new Date();
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 };
 
-const statusText = {
-  completed: "Completed",
-  pending: "Pending",
-  cancelled: "Cancelled",
-  shipped: "Shipped",
-  processing: "Processing",
+const formatDayKey = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+const formatMonthKey = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
+const getOrderRevenue = (order) =>
+  Number(order?.total || order?.finalPrice || 0);
+
+const buildRevenueTrend = (orders, chartMode, filter) => {
+  const buildDailySeries = () => {
+    const buckets = new Map();
+    const days = filter === "7days" ? 7 : 30;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let i = days - 1; i >= 0; i -= 1) {
+      const current = new Date(today);
+      current.setDate(today.getDate() - i);
+      buckets.set(formatDayKey(current), 0);
+    }
+
+    (orders || []).forEach((order) => {
+      const key = formatDayKey(parseOrderDate(order));
+      if (!buckets.has(key)) return;
+      buckets.set(key, (buckets.get(key) || 0) + getOrderRevenue(order));
+    });
+
+    const categories = [];
+    const data = [];
+    for (const [key, value] of buckets.entries()) {
+      categories.push(
+        new Date(
+          Number(key.slice(0, 4)),
+          Number(key.slice(5, 7)) - 1,
+          Number(key.slice(8, 10)),
+        ).toLocaleDateString("vi-VN", {
+          day: "2-digit",
+          month: "2-digit",
+        }),
+      );
+      data.push(value);
+    }
+
+    return {
+      title: "Doanh thu theo ngày (tất cả đơn hàng)",
+      subtitle: "7 hoặc 30 mốc gần nhất tùy bộ lọc",
+      categories,
+      data,
+    };
+  };
+
+  const buildMonthlySeries = () => {
+    const buckets = new Map();
+    const months = 12;
+    const today = new Date();
+
+    for (let i = months - 1; i >= 0; i -= 1) {
+      const current = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      buckets.set(formatMonthKey(current), 0);
+    }
+
+    (orders || []).forEach((order) => {
+      const key = formatMonthKey(parseOrderDate(order));
+      if (!buckets.has(key)) return;
+      buckets.set(key, (buckets.get(key) || 0) + getOrderRevenue(order));
+    });
+
+    const categories = [];
+    const data = [];
+    for (const [key, value] of buckets.entries()) {
+      const [year, month] = key.split("-");
+      categories.push(
+        new Date(Number(year), Number(month) - 1, 1).toLocaleDateString(
+          "vi-VN",
+          {
+            month: "short",
+            year: "numeric",
+          },
+        ),
+      );
+      data.push(value);
+    }
+
+    return {
+      title: "Doanh thu theo tháng (tất cả đơn hàng)",
+      subtitle: "12 tháng gần nhất",
+      categories,
+      data,
+    };
+  };
+
+  return chartMode === "monthly" ? buildMonthlySeries() : buildDailySeries();
 };
 
 function AdminOverview() {
+  const [summary, setSummary] = useState(null);
   const [orders, setOrders] = useState([]);
-  const [orderCount, setOrderCount] = useState(0);
-  const [customerCount, setCustomerCount] = useState(0);
-  const [totalRevenue, setTotalRevenue] = useState(0);
-  const [filter, setFilter] = useState("7days"); // mặc định 7 ngày
+  const [filter, setFilter] = useState("7days");
+  const [chartMode, setChartMode] = useState("daily");
+
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    const toDate = now.toISOString().split("T")[0];
+    const from = new Date();
+    from.setDate(now.getDate() - (filter === "7days" ? 6 : 29));
+    const fromDate = from.toISOString().split("T")[0];
+    return { fromDate, toDate };
+  }, [filter]);
+
+  const derivedHeldMoney = useMemo(() => {
+    return (orders || []).reduce((sum, order) => {
+      const orderStatus = String(order?.status || "").toLowerCase();
+      const paymentStatus = String(order?.paymentStatus || "").toUpperCase();
+
+      const isInProgress = [
+        "pending",
+        "processing",
+        "shipped",
+        "shipping",
+        "delivering",
+      ].includes(orderStatus);
+      const isUnpaid = !["PAID", "PAID_FULL", "REFUNDED"].includes(
+        paymentStatus,
+      );
+
+      if (!isInProgress || !isUnpaid) return sum;
+      return sum + Number(order?.total || 0);
+    }, 0);
+  }, [orders]);
+
+  const currentHeldMoney = useMemo(() => {
+    const apiValue = Number(summary?.currentHeldMoney);
+
+    if (Number.isFinite(apiValue) && apiValue > 0) return apiValue;
+    if (derivedHeldMoney > 0) return derivedHeldMoney;
+    if (Number.isFinite(apiValue)) return apiValue;
+    return 0;
+  }, [summary, derivedHeldMoney]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [ordersData, orderCountData, customerCountData, revData] =
-          await Promise.all([
-            getAllOrders(),
-            getOrdersCount(),
-            getCustomerCount(),
-            getTotalRevenue(),
-          ]);
-
-        setOrderCount(orderCountData);
-        setCustomerCount(customerCountData);
-        setOrders(ordersData);
-        setTotalRevenue(revData.totalRevenue || 0);
+        const [summaryData, ordersData] = await Promise.all([
+          getDashboardSummary(dateRange.fromDate, dateRange.toDate),
+          getAllOrders(),
+        ]);
+        setSummary(summaryData);
+        setOrders(ordersData || []);
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
       }
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 20000); // 20s
+    const interval = setInterval(fetchData, 20000);
     return () => clearInterval(interval);
-  }, []);
+  }, [dateRange]);
 
-  const stats = useMemo(() => {
-    const deliveredOrders = orders.filter((o) => o.status === "completed");
-    const avgValue =
-      deliveredOrders.length > 0 ? totalRevenue / deliveredOrders.length : 0;
+  const statCards = [
+    {
+      label: "Gross Revenue",
+      value: `${Number(summary?.grossRevenue || 0).toLocaleString("vi-VN")} ₫`,
+      icon: FiDollarSign,
+      bg: "bg-emerald-100",
+      text: "text-emerald-600",
+    },
+    {
+      label: "Refunded / Deducted",
+      value: `${Number(summary?.refundedAmount || 0).toLocaleString("vi-VN")} ₫`,
+      icon: FiRefreshCcw,
+      bg: "bg-amber-100",
+      text: "text-amber-600",
+    },
+    {
+      label: "Net Revenue",
+      value: `${Number(summary?.netRevenue || 0).toLocaleString("vi-VN")} ₫`,
+      icon: FiTrendingUp,
+      bg: "bg-blue-100",
+      text: "text-blue-600",
+    },
+    {
+      label: "Current Held Money",
+      value: `${Number(currentHeldMoney || 0).toLocaleString("vi-VN")} ₫`,
+      icon: FiCreditCard,
+      bg: "bg-amber-100",
+      text: "text-amber-600",
+    },
+    {
+      label: "Collected Cash",
+      value: `${Number(summary?.collectedCash || 0).toLocaleString("vi-VN")} ₫`,
+      icon: FiCreditCard,
+      bg: "bg-violet-100",
+      text: "text-violet-600",
+    },
+    {
+      label: "Total Orders",
+      value: Number(summary?.totalOrders || 0).toLocaleString("vi-VN"),
+      icon: FiShoppingBag,
+      bg: "bg-slate-100",
+      text: "text-slate-600",
+    },
+    {
+      label: "Shipping Orders",
+      value: Number(summary?.shippingOrders || 0).toLocaleString("vi-VN"),
+      icon: FiPackage,
+      bg: "bg-cyan-100",
+      text: "text-cyan-600",
+    },
+    {
+      label: "Cancelled Orders",
+      value: Number(summary?.cancelledOrders || 0).toLocaleString("vi-VN"),
+      icon: FiXCircle,
+      bg: "bg-slate-100",
+      text: "text-slate-600",
+    },
+  ];
 
-    // Simple growth logic: compare today vs yesterday if data exists
-    const todayStr = new Date().toLocaleDateString("vi-VN");
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toLocaleDateString("vi-VN");
-
-    const todayRevenue = orders
-      .filter((o) => o.createdAt === todayStr && o.status === "completed")
-      .reduce((s, o) => s + o.total, 0);
-    const yesterdayRevenue = orders
-      .filter((o) => o.createdAt === yesterdayStr && o.status === "completed")
-      .reduce((s, o) => s + o.total, 0);
-
-    const growth =
-      yesterdayRevenue > 0
-        ? ((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100
-        : todayRevenue > 0
-          ? 100
-          : 0;
-
-    return {
-      avgValue,
-      growth: growth.toFixed(1),
-      isGrowthUp: growth >= 0,
-    };
-  }, [orders, totalRevenue]);
-
-  const { revenueChartSeries, revenueChartCategories } = useMemo(() => {
-    const days = filter === "7days" ? 7 : 30;
-    const categories = [];
-    const values = [];
-    const now = new Date();
-
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(now.getDate() - i);
-      const localeDateStr = d.toLocaleDateString("vi-VN");
-      categories.push(localeDateStr.split("/").slice(0, 2).join("/"));
-
-      const dailyTotal = orders
-        .filter((o) => {
-          const oDate = o.rawDate ? new Date(o.rawDate) : null;
-          if (!oDate) return false;
-          return (
-            oDate.toLocaleDateString("vi-VN") === localeDateStr &&
-            o.status === "completed"
-          );
-        })
-        .reduce((sum, o) => {
-          const val =
-            typeof o.total === "number" ? o.total : parseFloat(o.total || 0);
-          return sum + (isNaN(val) ? 0 : val);
-        }, 0);
-      values.push(dailyTotal);
-    }
-
-    return {
-      revenueChartSeries: [{ name: "Revenue", data: values }],
-      revenueChartCategories: categories,
-    };
-  }, [orders, filter]);
-
-  const recentOrdersFiltered = useMemo(() => {
-    const now = new Date();
-    const days = filter === "7days" ? 7 : 30;
-
-    return orders
-      .filter((order) => {
-        const created = order.rawDate ? new Date(order.rawDate) : null;
-        if (!created) return false;
-
-        const diffTime = Math.abs(now.getTime() - created.getTime());
-        const diffDays = diffTime / (1000 * 60 * 60 * 24);
-        return diffDays <= days;
-      })
-      .sort((a, b) => {
-        const dateA = a.rawDate ? new Date(a.rawDate) : new Date(0);
-        const dateB = b.rawDate ? new Date(b.rawDate) : new Date(0);
-        return dateB - dateA;
-      })
-      .slice(0, 5);
-  }, [orders, filter]);
-
-  const statusRatioData = useMemo(() => {
-    const statuses = ["completed", "pending", "shipped", "cancelled"];
-    const counts = statuses.map(
-      (s) => orders.filter((o) => o.status === s).length,
-    );
-    return {
-      labels: ["Completed", "Pending", "Shipping", "Cancelled"],
-      series: counts.some((v) => v > 0) ? counts : [45, 25, 20, 10], // fallback to mock if no data
-    };
+  const recentOrders = useMemo(() => {
+    return [...orders].slice(0, 5);
   }, [orders]);
+
+  const revenueTrend = useMemo(
+    () => buildRevenueTrend(orders, chartMode, filter),
+    [orders, chartMode, filter],
+  );
+
+  const revenueChartOptions = useMemo(
+    () => ({
+      chart: {
+        type: "bar",
+        toolbar: { show: false },
+        zoom: { enabled: false },
+        fontFamily: "Inter, system-ui, sans-serif",
+        sparkline: { enabled: false },
+      },
+      colors: ["#2563eb"],
+      dataLabels: { enabled: false },
+      fill: {
+        type: "gradient",
+        gradient: {
+          shadeIntensity: 0.25,
+          opacityFrom: 0.92,
+          opacityTo: 0.82,
+          stops: [0, 90, 100],
+        },
+      },
+      plotOptions: {
+        bar: {
+          horizontal: false,
+          borderRadius: 10,
+          columnWidth: "48%",
+          distributed: false,
+        },
+      },
+      grid: {
+        borderColor: "#e5e7eb",
+        strokeDashArray: 4,
+        padding: {
+          top: 0,
+          right: 8,
+          bottom: 0,
+          left: 8,
+        },
+      },
+      xaxis: {
+        categories: revenueTrend.categories,
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        labels: {
+          style: {
+            colors: "#64748b",
+            fontSize: "12px",
+            fontWeight: 600,
+          },
+          rotate: -30,
+          trim: false,
+        },
+      },
+      states: {
+        hover: {
+          filter: { type: "lighten", value: 0.08 },
+        },
+        active: {
+          filter: { type: "none" },
+        },
+      },
+      yaxis: {
+        min: 0,
+        labels: {
+          formatter: (value) =>
+            `${Number(value || 0).toLocaleString("vi-VN")} ₫`,
+          style: {
+            colors: "#64748b",
+            fontSize: "12px",
+            fontWeight: 600,
+          },
+        },
+      },
+      tooltip: {
+        shared: false,
+        intersect: true,
+        custom: ({ series, seriesIndex, dataPointIndex, w }) => {
+          const value = series[seriesIndex][dataPointIndex] || 0;
+          const label = w.globals.labels[dataPointIndex] || "";
+          return `
+            <div style="padding:12px 14px;background:#0f172a;color:#fff;border-radius:14px;box-shadow:0 18px 40px rgba(15,23,42,.18);min-width:140px">
+              <div style="font-size:12px;opacity:.72;margin-bottom:4px">${label}</div>
+              <div style="font-size:18px;font-weight:700">${Number(value).toLocaleString("vi-VN")} ₫</div>
+            </div>
+          `;
+        },
+      },
+      stroke: {
+        show: false,
+      },
+      legend: {
+        show: false,
+      },
+    }),
+    [revenueTrend.categories],
+  );
+
+  const revenueSeries = useMemo(
+    () => [
+      {
+        name: "Revenue",
+        data: revenueTrend.data,
+      },
+    ],
+    [revenueTrend.data],
+  );
+
+  const totalTrendRevenue = useMemo(
+    () => revenueTrend.data.reduce((sum, value) => sum + Number(value || 0), 0),
+    [revenueTrend.data],
+  );
 
   const todayStrDisplay = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -222,13 +394,8 @@ function AdminOverview() {
     day: "numeric",
   });
 
-  const cancelledOrders = useMemo(() => {
-    return orders.filter((o) => o.status === "cancelled");
-  }, [orders]);
-
   return (
     <div className="px-8 pt-8 pb-16 bg-gradient-to-br from-gray-50 to-gray-200 min-h-screen">
-      {/* ── TITLE ── */}
       <motion.div
         {...fadeUp(0)}
         className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4"
@@ -238,430 +405,156 @@ function AdminOverview() {
             System Overview
           </h1>
           <p className="text-sm text-gray-500 mt-1 font-medium">
-            Monitoring business health and customer activity
+            Financial dashboard and order performance
           </p>
         </div>
-        <div className="flex items-center gap-3 text-sm font-semibold text-gray-600 bg-white border border-gray-100 shadow-xl rounded-2xl px-5 py-3 hover:shadow-2xl transition-all">
-          <FiCalendar className="text-blue-500" size={16} />
-          <span className="capitalize">{todayStrDisplay}</span>
+
+        <div className="flex items-center gap-3">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium"
+          >
+            <option value="7days">Last 7 days</option>
+            <option value="30days">Last 30 days</option>
+          </select>
+
+          <div className="flex items-center gap-3 text-sm font-semibold text-gray-600 bg-white border border-gray-100 shadow-xl rounded-2xl px-5 py-3">
+            <FiCalendar className="text-blue-500" size={16} />
+            <span>{todayStrDisplay}</span>
+          </div>
         </div>
       </motion.div>
 
-      {/* ── STAT CARDS ── */}
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
         {statCards.map((card, i) => {
           const Icon = card.icon;
-          let val = "—";
-          let subtext = "";
-          let up = true;
-
-          if (card.key === "orders") val = orderCount.toLocaleString();
-          else if (card.key === "customers")
-            val = customerCount.toLocaleString();
-          else if (card.key === "revenue") {
-            val = `${totalRevenue.toLocaleString("vi-VN")} ₫`;
-            subtext = `${stats.growth}% today`;
-            up = stats.isGrowthUp;
-          } else if (card.key === "growth") {
-            val = `${Math.round(stats.avgValue).toLocaleString("vi-VN")} ₫`;
-            subtext = "per order";
-          }
-
           return (
             <motion.div
               key={card.label}
               {...fadeUp(0.05 * i)}
-              className="bg-white rounded-3xl p-7 border border-gray-50 shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group relative overflow-hidden"
+              className="bg-white rounded-3xl p-7 border border-gray-50 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
             >
-              <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                <Icon size={80} />
-              </div>
-
-              <div className="flex items-center justify-between relative z-10">
+              <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
                   {card.label}
                 </p>
                 <div
-                  className={`w-12 h-12 flex items-center justify-center rounded-2xl ${card.bg} ${card.text} shadow-lg shadow-current/20 group-hover:scale-110 group-hover:rotate-6 transition-all duration-500`}
+                  className={`w-12 h-12 flex items-center justify-center rounded-2xl ${card.bg} ${card.text}`}
                 >
                   <Icon size={20} />
                 </div>
               </div>
-
-              <div className="mt-6 relative z-10">
-                <p className="text-3xl font-black text-gray-800 tracking-tight">
-                  {val}
+              <div className="mt-6">
+                <p className="text-2xl font-black text-gray-800 tracking-tight">
+                  {card.value}
                 </p>
-                {subtext && (
-                  <div
-                    className={`flex items-center gap-1.5 mt-2 text-xs font-bold ${up ? "text-emerald-500" : "text-rose-500"}`}
-                  >
-                    {up ? <FiArrowUpRight /> : <FiArrowDownRight />}
-                    <span>{subtext}</span>
-                  </div>
-                )}
               </div>
             </motion.div>
           );
         })}
       </section>
 
-      {/* ── CHART + RECENT ORDERS ── */}
-      <section className="mt-10 grid grid-cols-1 xl:grid-cols-3 gap-8">
-        {/* Area chart */}
-        <motion.div
-          {...fadeUp(0.15)}
-          className="xl:col-span-2 bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm hover:shadow-2xl transition-all duration-500"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-black text-gray-800 letter-spacing-tight">
-                {filter === "7days" ? "Weekly" : "Monthly"} Revenue
-              </h2>
-              <p className="text-sm text-gray-400 font-medium mt-1">
-                Trends of successfully delivered orders
-              </p>
-            </div>
-            <div className="bg-gray-50 p-1 rounded-xl border border-gray-100 flex gap-1">
-              {["7days", "30days"].map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${filter === f ? "bg-white text-blue-600 shadow-md" : "text-gray-400 hover:text-gray-600"}`}
-                >
-                  {f === "7days" ? "7D" : "30D"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <Chart
-            type="area"
-            height={320}
-            series={revenueChartSeries}
-            options={{
-              chart: {
-                toolbar: { show: false },
-                zoom: { enabled: false },
-                sparkline: { enabled: false },
-              },
-              stroke: { curve: "smooth", width: 4 },
-              colors: ["#3b82f6"],
-              fill: {
-                type: "gradient",
-                gradient: {
-                  shadeIntensity: 1,
-                  opacityFrom: 0.35,
-                  opacityTo: 0.02,
-                  stops: [0, 95, 100],
-                },
-              },
-              markers: { size: 0, hover: { size: 6, strokeWidth: 3 } },
-              dataLabels: { enabled: false },
-              xaxis: {
-                categories: revenueChartCategories,
-                axisBorder: { show: false },
-                axisTicks: { show: false },
-                labels: {
-                  style: {
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    colors: "#94a3b8",
-                  },
-                },
-              },
-              yaxis: {
-                labels: {
-                  style: {
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    colors: "#94a3b8",
-                  },
-                  formatter: (v) =>
-                    Math.abs(v) >= 1000000
-                      ? (v / 1000000).toFixed(1) + "M"
-                      : v.toLocaleString("vi-VN"),
-                },
-              },
-              grid: {
-                borderColor: "#f8fafc",
-                strokeDashArray: 6,
-                padding: { left: 0, right: 0 },
-              },
-              tooltip: {
-                theme: "light",
-                y: { formatter: (val) => val.toLocaleString("vi-VN") + " ₫" },
-              },
-            }}
-          />
-        </motion.div>
-
-        {/* Recent orders */}
-        <motion.div
-          {...fadeUp(0.2)}
-          className="bg-white rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-2xl transition-all duration-500 p-8 flex flex-col"
-        >
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h2 className="text-xl font-black text-gray-800">Recent Sales</h2>
-              <p className="text-xs text-gray-400 font-bold mt-1 uppercase tracking-tighter">
-                Latest {recentOrdersFiltered.length} activity
-              </p>
-            </div>
-            <Link
-              to="/dashboard/orders"
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-all border border-gray-100"
-            >
-              <FiArrowUpRight size={20} />
-            </Link>
-          </div>
-
-          <div className="space-y-4 flex-1">
-            {recentOrdersFiltered.map((order, i) => (
-              <motion.div
-                key={order.id}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.25 + i * 0.08 }}
-                className="flex items-center justify-between p-4 rounded-[1.5rem] hover:bg-blue-50/40 hover:shadow-sm transition-all duration-300 cursor-pointer group border border-transparent hover:border-blue-100"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="relative">
-                    <img
-                      src={
-                        order.avatar ||
-                        `https://ui-avatars.com/api/?name=${order.customer}&background=random`
-                      }
-                      alt={order.customer}
-                      className="w-11 h-11 rounded-2xl object-cover ring-2 ring-white shadow-md group-hover:scale-105 transition-transform"
-                    />
-                    <div
-                      className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${order.status === "completed" ? "bg-emerald-500" : "bg-amber-500"}`}
-                    />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-800 leading-tight group-hover:text-blue-700 transition-colors">
-                      {order.customer}
-                    </p>
-                    <p className="text-[11px] text-gray-400 font-medium mt-1">
-                      {order.createdAt}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-end gap-1.5">
-                  <p className="text-sm font-black text-gray-700">
-                    {order.total.toLocaleString("vi-VN")} ₫
-                  </p>
-                  {order.status && (
-                    <span
-                      className={`text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg ${statusStyle[order.status] ?? "bg-gray-100 text-gray-500 shadow-sm"}`}
-                    >
-                      {statusText[order.status]}
-                    </span>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-
-            {recentOrdersFiltered.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-40 text-gray-300 opacity-50">
-                <FiShoppingCart size={40} className="mb-2" />
-                <p className="text-xs font-bold uppercase">No recent orders</p>
-              </div>
-            )}
-          </div>
-        </motion.div>
-      </section>
-
-      {/* ── DONUT + LINE ── */}
-      <section className="mt-10 grid grid-cols-1 xl:grid-cols-3 gap-8">
-        {/* Status Donut */}
-        <motion.div
-          {...fadeUp(0.25)}
-          className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm hover:shadow-2xl transition-all duration-500 flex flex-col"
-        >
-          <div className="mb-8">
-            <h2 className="text-xl font-black text-gray-800">Efficiency</h2>
-            <p className="text-sm text-gray-400 font-medium mt-1">
-              Order fulfillment status breakdown
+      <section className="mt-10 bg-white rounded-[2rem] border border-gray-100 p-8 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+          <div>
+            <h2 className="text-xl font-black text-gray-800">Revenue Trend</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              {revenueTrend.title} · {revenueTrend.subtitle} · Tổng:{" "}
+              {Number(totalTrendRevenue || 0).toLocaleString("vi-VN")} ₫
             </p>
           </div>
 
-          <div className="flex-1 flex items-center justify-center">
+          <div className="inline-flex rounded-2xl bg-gray-100 p-1 self-start">
+            <button
+              type="button"
+              onClick={() => setChartMode("daily")}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+                chartMode === "daily"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Theo ngày
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartMode("monthly")}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+                chartMode === "monthly"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              Theo tháng
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-[1.75rem] border border-slate-100 bg-gradient-to-br from-slate-50 via-white to-blue-50/40 p-4 shadow-inner">
+          {revenueSeries[0].data.some((value) => Number(value || 0) > 0) ? (
             <Chart
-              type="donut"
-              height={320}
-              series={statusRatioData.series}
-              options={{
-                labels: statusRatioData.labels,
-                colors: ["#10b981", "#f59e0b", "#3b82f6", "#ef4444"],
-                stroke: { width: 0 },
-                plotOptions: {
-                  pie: {
-                    donut: {
-                      size: "75%",
-                      labels: {
-                        show: true,
-                        name: {
-                          fontSize: "14px",
-                          fontWeight: 800,
-                          color: "#64748b",
-                          offsetY: -5,
-                        },
-                        value: {
-                          fontSize: "24px",
-                          fontWeight: 900,
-                          color: "#1e293b",
-                          offsetY: 5,
-                        },
-                        total: {
-                          show: true,
-                          label: "TOTAL",
-                          fontSize: "10px",
-                          fontWeight: 900,
-                          color: "#94a3b8",
-                          formatter: (w) =>
-                            w.globals.seriesTotals.reduce((a, b) => a + b, 0),
-                        },
-                      },
-                    },
-                  },
-                },
-                legend: {
-                  show: true,
-                  position: "bottom",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  labels: { colors: "#64748b" },
-                  markers: { radius: 6 },
-                },
-                dataLabels: { enabled: false },
-                tooltip: { theme: "light" },
-              }}
+              options={revenueChartOptions}
+              series={revenueSeries}
+              type="bar"
+              height={360}
             />
-          </div>
-        </motion.div>
-
-        {/* Growth Trend */}
-        <motion.div
-          {...fadeUp(0.3)}
-          className="bg-white rounded-[2.5rem] border border-gray-100 p-8 shadow-sm hover:shadow-2xl transition-all duration-500 xl:col-span-2"
-        >
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h2 className="text-xl font-black text-gray-800">
-                Growth Projection
-              </h2>
-              <p className="text-sm text-gray-400 font-medium mt-1">
-                Cumulative revenue growth over time
-              </p>
+          ) : (
+            <div className="h-[360px] flex items-center justify-center text-gray-400 text-sm">
+              No revenue data for the selected range
             </div>
-            <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-2xl text-xs font-black">
-              <FiTrendingUp size={14} />
-              <span>ACTIVE STOCKS</span>
-            </div>
-          </div>
-
-          <Chart
-            type="line"
-            height={300}
-            series={revenueChartSeries}
-            options={{
-              chart: {
-                toolbar: { show: false },
-                animations: { enabled: true, easing: "easeinout", speed: 800 },
-              },
-              stroke: { curve: "smooth", width: 5, dashArray: 0 },
-              markers: {
-                size: 6,
-                strokeWidth: 4,
-                strokeColors: "#fff",
-                colors: ["#10b981"],
-                hover: { size: 9 },
-              },
-              colors: ["#10b981"],
-              xaxis: {
-                categories: revenueChartCategories,
-                axisBorder: { show: false },
-                labels: {
-                  style: {
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    colors: "#94a3b8",
-                  },
-                },
-              },
-              yaxis: {
-                labels: {
-                  style: {
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    colors: "#94a3b8",
-                  },
-                  formatter: (v) => v.toLocaleString("vi-VN"),
-                },
-              },
-              grid: { borderColor: "#f8fafc", strokeDashArray: 6 },
-              tooltip: {
-                theme: "light",
-                marker: { show: true },
-                y: { formatter: (val) => val.toLocaleString("vi-VN") + " ₫" },
-              },
-            }}
-          />
-        </motion.div>
+          )}
+        </div>
       </section>
 
-      {/* ── CANCELLED ORDERS ── */}
-      {cancelledOrders.length > 0 && (
-        <section className="mt-10">
-          <motion.div
-            {...fadeUp(0.35)}
-            className="bg-white rounded-3xl border border-red-100 p-6 shadow-sm hover:shadow-xl transition-all duration-300"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-base font-semibold text-red-800 flex items-center gap-2">
-                  <FiX className="text-red-500" /> Cancelled Orders
-                </h2>
-                <p className="text-xs text-red-400 mt-0.5">
-                  Orders that were not successful
-                </p>
-              </div>
-            </div>
+      <section className="mt-10 bg-white rounded-[2rem] border border-gray-100 p-8 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-black text-gray-800">Recent Orders</h2>
+          <div className="text-sm text-gray-500">
+            {dateRange.fromDate} → {dateRange.toDate}
+          </div>
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {cancelledOrders.map((order, i) => (
-                <div
-                  key={order.orderId}
-                  className="flex items-center justify-between p-4 bg-red-50/30 rounded-2xl border border-red-50 hover:bg-red-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-red-100 text-red-600 rounded-full flex items-center justify-center font-bold">
-                      {order.fullName?.charAt(0) || "U"}
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">
-                        {order.orderCode}
-                      </p>
-                      <p className="text-xs text-gray-500">{order.fullName}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-red-600">
-                      {(order.finalPrice || 0).toLocaleString()} ₫
-                    </p>
-                    <p className="text-[10px] text-gray-400">
-                      {new Date(order.orderDate).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[800px] text-sm">
+            <thead>
+              <tr className="text-left text-gray-400 border-b">
+                <th className="py-3">Order</th>
+                <th className="py-3">Customer</th>
+                <th className="py-3">Status</th>
+                <th className="py-3 text-right">Total</th>
+                <th className="py-3">Payment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentOrders.map((order) => (
+                <tr key={order.orderId} className="border-b last:border-0">
+                  <td className="py-4 font-semibold text-gray-700">
+                    {order.code || order.orderCode}
+                  </td>
+                  <td className="py-4">
+                    {order.customer || order.fullName || "-"}
+                  </td>
+                  <td className="py-4">{order.status || "-"}</td>
+                  <td className="py-4 text-right font-bold">
+                    {Number(
+                      order.total || order.finalPrice || 0,
+                    ).toLocaleString("vi-VN")}{" "}
+                    ₫
+                  </td>
+                  <td className="py-4">{order.paymentStatus || "-"}</td>
+                </tr>
               ))}
+            </tbody>
+          </table>
+
+          {!recentOrders.length && (
+            <div className="py-12 text-center text-gray-400">
+              No orders found
             </div>
-          </motion.div>
-        </section>
-      )}
+          )}
+        </div>
+      </section>
     </div>
   );
 }

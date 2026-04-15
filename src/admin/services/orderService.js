@@ -28,7 +28,7 @@ export const getAllOrders = async () => {
   return orders.map((o) => {
     const items = o.orderItems || o.items || [];
     const hasPrescription = checkIfHasPrescription(items);
-    
+
     return {
       id: o.orderId,
       code: o.orderCode,
@@ -54,9 +54,9 @@ export const getOrderById = async (id) => {
   const res = await getOrderByIdApi(id);
   const o = res.data?.data || res.data;
   const items = o.orderItems || o.items || [];
-  
 
-  
+
+
   const hasPrescription = checkIfHasPrescription(items);
 
   return {
@@ -92,7 +92,8 @@ const mapStatus = (status) => {
     case "PENDING": return "pending";
     case "PROCESSING": return "processing";
     case "DELIVERING":
-    case "SHIPPING": return "shipped";
+    case "SHIPPING":
+    case "SHIPPED": return "delivering";
     case "DELIVERED":
     case "COMPLETED": return "completed";
     case "CANCELED":

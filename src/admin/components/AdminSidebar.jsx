@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   FiGrid,
   FiBox,
+  FiHome,
   FiShoppingCart,
   FiUser,
   FiLogOut,
@@ -31,9 +32,10 @@ function AdminSidebar({ collapsed }) {
       aria-label={label}
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
-        `${navItem} ${isActive
-          ? "bg-blue-50 text-blue-600 font-semibold shadow-sm"
-          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+        `${navItem} ${
+          isActive
+            ? "bg-blue-50 text-blue-600 font-semibold shadow-sm"
+            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
         }`
       }
     >
@@ -166,6 +168,9 @@ function AdminSidebar({ collapsed }) {
             {renderItem("/dashboard", <FiGrid size={18} />, "Dashboard", true)}
           </div>
           <div className="relative">
+            {renderItem("/", <FiHome size={18} />, "Customer Store", true)}
+          </div>
+          <div className="relative">
             {renderItem("/dashboard/products", <FiBox size={18} />, "Products")}
           </div>
           <div className="relative">
@@ -176,9 +181,11 @@ function AdminSidebar({ collapsed }) {
             )}
           </div>
 
-          {renderItem("/dashboard/return-requests",
+          {renderItem(
+            "/dashboard/return-requests",
             <FiEye size={18} />,
-            "Return Requests")}
+            "Return Requests",
+          )}
 
           {renderItem(
             "/dashboard/preoders",

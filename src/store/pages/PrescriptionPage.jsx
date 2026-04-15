@@ -1,5 +1,10 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  useParams,
+  useNavigate,
+  useSearchParams,
+  useLocation,
+} from "react-router-dom";
 import HeaderBar from "../components/prescription/Headerbar";
 import FrameSummary from "../components/prescription/FrameSummary";
 import PrescriptionTable from "../components/prescription/PrescriptionTable";
@@ -12,7 +17,7 @@ import { addToCartApi } from "../api/cartApi";
 import {
   getMyUserPrescriptions,
   saveUserPrescription,
-  deleteUserPrescription
+  deleteUserPrescription,
 } from "../services/userPrescriptionService";
 
 import { FiCheck } from "react-icons/fi";
@@ -20,10 +25,14 @@ import { useToast } from "../../context/ToastContext";
 export default function PrescriptionPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const lensId = searchParams.get("lensId");
   const variantIdFromUrl = searchParams.get("variantId");
-  const quantityFromUrl = Math.max(1, parseInt(searchParams.get("quantity")) || 1);
+  const quantityFromUrl = Math.max(
+    1,
+    parseInt(searchParams.get("quantity")) || 1,
+  );
 
   const [product, setProduct] = useState(null);
   const [lensProduct, setLensProduct] = useState(null);
@@ -43,7 +52,6 @@ export default function PrescriptionPage() {
     }, 1200);
   };
 
-
   const [form, setForm] = useState({
     right: { sph: "", cyl: "", axis: "", add: "" },
     left: { sph: "", cyl: "", axis: "", add: "" },
@@ -51,6 +59,15 @@ export default function PrescriptionPage() {
   });
 
   const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    const currentUser =
+      localStorage.getItem("currentUser") || localStorage.getItem("token");
+    if (!currentUser) {
+      const from = `${location.pathname}${location.search}${location.hash}`;
+      navigate("/login", { state: { from } });
+    }
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   /* ---------- LOAD PRODUCTS ---------- */
   useEffect(() => {
@@ -136,11 +153,16 @@ export default function PrescriptionPage() {
     try {
       await deleteUserPrescription(rxId);
       // Xóa thành công thì lọc cái đơn đó ra khỏi màn hình
-      setSavedPrescriptions((prev) => prev.filter((rx) => rx.id !== rxId && rx.prescriptionId !== rxId));
+      setSavedPrescriptions((prev) =>
+        prev.filter((rx) => rx.id !== rxId && rx.prescriptionId !== rxId),
+      );
       showToast("Prescription deleted successfully!");
     } catch (error) {
       console.error("Delete prescription error:", error);
-      showToast("Cannot delete prescription right now. Please try again later.", "error");
+      showToast(
+        "Cannot delete prescription right now. Please try again later.",
+        "error",
+      );
     }
   };
 
@@ -332,7 +354,8 @@ export default function PrescriptionPage() {
           name: lensProduct.name,
           productName: lensProduct.name,
           brand: lensProduct.brand,
-          imageUrl: lensVariant?.imageUrl || lensProduct.imageUrl || lensProduct.img,
+          imageUrl:
+            lensVariant?.imageUrl || lensProduct.imageUrl || lensProduct.img,
           price: lensPrice,
           unitPrice: lensPrice,
           quantity: quantityFromUrl,
@@ -450,7 +473,9 @@ export default function PrescriptionPage() {
                 </div>
                 <button
                   onClick={() =>
-                    navigate(`/prescription/${id}?variantId=${variantIdFromUrl}&quantity=${quantityFromUrl}`)
+                    navigate(
+                      `/prescription/${id}?variantId=${variantIdFromUrl}&quantity=${quantityFromUrl}`,
+                    )
                   }
                   className="w-full mt-4 py-2 border border-stone-200 rounded-lg text-[11px] font-semibold text-stone-500 hover:bg-stone-50 transition-all active:scale-[0.98]"
                 >
@@ -592,8 +617,8 @@ export default function PrescriptionPage() {
                               onClick={() => applySavedPrescription(rx)}
                               className="px-4 py-2.5 text-indigo-700 text-[13px] hover:bg-indigo-50 transition-colors font-semibold text-left"
                             >
-                              Prescription #{idx + 1} — OD: {rx.sphRight ?? "—"} /
-                              OS: {rx.sphLeft ?? "—"}
+                              Prescription #{idx + 1} — OD: {rx.sphRight ?? "—"}{" "}
+                              / OS: {rx.sphLeft ?? "—"}
                             </button>
                             {rxId && (
                               <button
@@ -632,8 +657,6 @@ export default function PrescriptionPage() {
                     />
 
                     <div className="h-px bg-stone-100" />
-
-
                   </div>
 
                   <div className="mt-12 flex items-center gap-4 p-5 bg-stone-50 rounded-2xl border border-stone-200/50">
@@ -660,7 +683,7 @@ export default function PrescriptionPage() {
             )}
           </div>
         </div>
-      </div >
+      </div>
     </>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import glassesImg1 from "../image/image1.jpg";
 import glassesImg2 from "../image/image2.jpg";
 import glassesImg3 from "../image/image3.jpg";
@@ -21,7 +21,7 @@ import {
 import { products } from "../data/shopMock";
 
 /* ===== DATA ===== */
-const sliderData = [ 
+const sliderData = [
   {
     id: 1,
     title: "Modern Eyewear",
@@ -44,7 +44,6 @@ const sliderData = [
     image: glassesImg3,
   },
 ];
-
 
 const services = [
   {
@@ -72,6 +71,7 @@ const services = [
 /* ===== LOGIN MODAL ===== */
 function LoginModal({ isOpen, onClose, productName }) {
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     document.body.style.overflow = isOpen ? "hidden" : "";
@@ -133,7 +133,8 @@ function LoginModal({ isOpen, onClose, productName }) {
             <button
               onClick={() => {
                 onClose();
-                navigate("/login");
+                const from = `${location.pathname}${location.search}${location.hash}`;
+                navigate("/login", { state: { from } });
               }}
               className="w-full py-3 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition-all text-sm tracking-wide active:scale-95"
             >
@@ -424,12 +425,13 @@ function HomePage() {
               Find the perfect pair of glasses
             </h2>
             <p className="text-stone-400 mb-10 text-sm max-w-sm mx-auto leading-relaxed">
-              Thousands of high-quality frames and lenses. Book an eye exam today.
+              Thousands of high-quality frames and lenses. Book an eye exam
+              today.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3">
               <Link to="/shop">
                 <button className="px-7 py-3 bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm tracking-wide rounded-full transition-all active:scale-95">
-                 Shop now
+                  Shop now
                 </button>
               </Link>
               <button className="px-7 py-3 border border-stone-700 hover:border-stone-500 text-stone-400 hover:text-white font-medium text-sm tracking-wide rounded-full transition-all active:scale-95">

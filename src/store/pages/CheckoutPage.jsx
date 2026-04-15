@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FiArrowLeft,
@@ -8,10 +8,6 @@ import {
   FiUser,
   FiPhone,
   FiMapPin,
-  FiFileText,
-  FiMinus,
-  FiPlus,
-  FiX,
 } from "react-icons/fi";
 
 import {
@@ -22,7 +18,10 @@ import {
 } from "../services/cartService";
 
 import { checkoutOrder, createVNPayPayment } from "../services/checkoutService";
-import { cancelOrder, getOrderDetails } from "../services/orderService";
+import {
+  cancelPendingPayment,
+  getOrderDetails,
+} from "../services/orderService";
 import { useToast } from "../../context/ToastContext";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -49,6 +48,14 @@ function Field({ label, required, icon: Icon, children }) {
     </div>
   );
 }
+
+const isPreorderItem = (item) => {
+  const rawType = String(item?.itemType || item?.type || "").toUpperCase();
+  const boolFlag = item?.isPreorder ?? item?.isPreOrder;
+
+  if (typeof boolFlag === "boolean") return boolFlag;
+  return ["PREORDER", "PRE_ORDER", "REORDER", "RE_ORDER"].includes(rawType);
+};
 
 function CheckoutPage() {
   const navigate = useNavigate();
@@ -86,7 +93,7 @@ function CheckoutPage() {
     phone: "",
     address: "",
     note: "",
-    depositType: "FULL", 
+    depositType: "FULL",
   });
   const [toast, setToast] = useState({ visible: false, message: "" });
   const [placing, setPlacing] = useState(false);
@@ -96,7 +103,7 @@ function CheckoutPage() {
     let user;
     try {
       user = JSON.parse(localStorage.getItem("currentUser"));
-    } catch (e) {
+    } catch {
       user = null;
     }
 
@@ -139,7 +146,7 @@ function CheckoutPage() {
             pd: item.pd ?? rx.pd,
             prescription: item.prescription,
             itemType: item.itemType || item.type,
-            isPreorder: !!(item.isPreorder ?? item.isPreOrder ?? false),
+            isPreorder: isPreorderItem(item),
             variant: item.variant || {
               variantId: item.variantId,
               color: item.variantColor,
@@ -164,8 +171,8 @@ function CheckoutPage() {
 
   // 🔥 TỰ ĐỘNG CHỌN VNPAY NẾU CÓ PREORDER
   useEffect(() => {
-    if (cartItems.some(i => i.isPreorder)) {
-        setPaymentMethod("VNPAY");
+    if (cartItems.some((i) => i.isPreorder)) {
+      setPaymentMethod("VNPAY");
     }
   }, [cartItems]);
 
@@ -176,29 +183,31 @@ function CheckoutPage() {
   const shippingFee = calculateShippingFee(formData.city, total);
   const totalWithShipping = total + shippingFee;
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
+  const handleChange = (e) => {
+    const { name, value } = e.target;
 
-        let newValue = value;
+    let newValue = value;
 
-        // 🔥 CHỈ CHO NHẬP SỐ
-        if (name === "phone") {
-            newValue = value.replace(/\D/g, "");
-        }
+    // 🔥 CHỈ CHO NHẬP SỐ
+    if (name === "phone") {
+      newValue = value.replace(/\D/g, "");
+    }
 
-        setFormData((prev) => ({
-            ...prev,
-            [name]: newValue,
-        }));
-    };
+    setFormData((prev) => ({
+      ...prev,
+      [name]: newValue,
+    }));
+  };
   const showToast = (msg) => {
     setToast({ visible: true, message: msg });
     setTimeout(() => setToast({ visible: false, message: "" }), 3000);
   };
 
-  const updateQty = async (productId, variantId, delta, cartItemId) => {
+  const _updateQty = async (productId, variantId, delta, cartItemId) => {
     const item = cartItems.find(
-      (i) => String(i.cartItemId || i.variant?.variantId) === String(cartItemId || variantId),
+      (i) =>
+        String(i.cartItemId || i.variant?.variantId) ===
+        String(cartItemId || variantId),
     );
     if (!item) return;
     const newQty = item.quantity + delta;
@@ -207,58 +216,162 @@ function CheckoutPage() {
       return;
     }
 
-    const user = localStorage.getItem("currentUser") || localStorage.getItem("token");
+    const user =
+      localStorage.getItem("currentUser") || localStorage.getItem("token");
 
     try {
       if (user && cartItemId) {
         await updateCartItemService(cartItemId, newQty);
       }
       const updated = cartItems.map((i) =>
-        String(i.cartItemId || i.variant?.variantId) === String(cartItemId || variantId)
+        String(i.cartItemId || i.variant?.variantId) ===
+        String(cartItemId || variantId)
           ? { ...i, quantity: newQty }
           : i,
       );
       setCartItems(updated);
       localStorage.setItem("cart", JSON.stringify(updated));
       window.dispatchEvent(new Event("storage"));
-    } catch (error) {
+    } catch {
       showToast("Quantity update failed!");
     }
   };
 
   const removeItem = async (productId, variantId, cartItemId) => {
-    const user = localStorage.getItem("currentUser") || localStorage.getItem("token");
+    const user =
+      localStorage.getItem("currentUser") || localStorage.getItem("token");
 
     try {
       if (user && cartItemId) {
         await deleteCartItemService(cartItemId);
       }
       const updated = cartItems.filter(
-        (i) => String(i.cartItemId || i.variant?.variantId) !== String(cartItemId || variantId),
+        (i) =>
+          String(i.cartItemId || i.variant?.variantId) !==
+          String(cartItemId || variantId),
       );
       setCartItems(updated);
       localStorage.setItem("cart", JSON.stringify(updated));
       window.dispatchEvent(new Event("storage"));
       if (updated.length === 0) navigate("/shop");
-    } catch (error) {
+    } catch {
       showToast("Failed to remove product!");
     }
   };
 
   const [paymentWindow, setPaymentWindow] = useState(null);
   const [waitingPayment, setWaitingPayment] = useState(false);
+  const [pendingOrderId, setPendingOrderId] = useState(null);
+  const paymentHandledRef = useRef(false);
+
+  const clearPaymentState = useCallback(() => {
+    setWaitingPayment(false);
+    setPlacing(false);
+    setPendingOrderId(null);
+    setPaymentWindow(null);
+  }, []);
+
+  const cancelPendingOrderAndExit = useCallback(
+    async (orderId, message) => {
+      if (!orderId) {
+        paymentHandledRef.current = true;
+        clearPaymentState();
+        if (message) showToast(message);
+        return;
+      }
+
+      try {
+        await cancelPendingPayment(orderId);
+      } catch (err) {
+        console.error("Cancel pending payment failed:", err);
+      } finally {
+        paymentHandledRef.current = true;
+        clearPaymentState();
+        if (message) showToast(message);
+      }
+    },
+    [clearPaymentState],
+  );
+
+  const finalizeVnPaySuccess = useCallback(() => {
+    if (paymentHandledRef.current) return;
+    paymentHandledRef.current = true;
+
+    setSuccess(true);
+    clearPaymentState();
+
+    (async () => {
+      try {
+        await clearCartService();
+      } catch (error) {
+        console.error("Cart clear failed:", error);
+      }
+
+      localStorage.setItem("cart", JSON.stringify([]));
+      window.dispatchEvent(new Event("storage"));
+      setTimeout(() => navigate("/my-orders"), 1400);
+    })();
+  }, [clearPaymentState, navigate]);
+
+  useEffect(() => {
+    const handleVnPayResult = async (payload) => {
+      if (!payload || payload.type !== "VNPAY_RESULT") return;
+
+      const ok = payload.success === true || payload.responseCode === "00";
+      if (ok) {
+        finalizeVnPaySuccess();
+        return;
+      }
+
+      await cancelPendingOrderAndExit(
+        pendingOrderId,
+        "Payment failed or cancelled.",
+      );
+    };
+
+    const onMessage = (event) => {
+      if (event.origin !== window.location.origin) return;
+      handleVnPayResult(event.data);
+    };
+
+    const onStorage = (event) => {
+      if (event.key !== "vnpay:lastResult" || !event.newValue) return;
+      try {
+        const payload = JSON.parse(event.newValue);
+        handleVnPayResult(payload);
+      } catch (err) {
+        console.error("Parse VNPay result failed:", err);
+      }
+    };
+
+    window.addEventListener("message", onMessage);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [cancelPendingOrderAndExit, finalizeVnPaySuccess, pendingOrderId]);
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
 
-    const currentUser = localStorage.getItem("currentUser") || localStorage.getItem("token");
+    const currentUser =
+      localStorage.getItem("currentUser") || localStorage.getItem("token");
     if (!currentUser) {
       showGlobalToast("Please log in to place your order.");
-      setTimeout(() => navigate("/login", { state: { from: "/checkout" } }), 1500);
+      setTimeout(
+        () => navigate("/login", { state: { from: "/checkout" } }),
+        1500,
+      );
       return;
     }
 
-    if (!formData.fullName || !formData.phone || !formData.address || !formData.city) {
+    if (
+      !formData.fullName ||
+      !formData.phone ||
+      !formData.address ||
+      !formData.city
+    ) {
       showToast("Please fill in all information!");
       return;
     }
@@ -266,73 +379,117 @@ function CheckoutPage() {
     setPlacing(true);
 
     try {
-      const order = await checkoutOrder(formData, shippingFee, cartItems, paymentMethod);
+      const order = await checkoutOrder(
+        formData,
+        shippingFee,
+        cartItems,
+        paymentMethod,
+      );
 
       // ✅ VNPay Payment Flow (Popup + Polling)
       if (paymentMethod === "VNPAY") {
+        paymentHandledRef.current = false;
+        setPendingOrderId(order.orderId);
         let amountToPay = 0;
-        const hasPreorder = cartItems.some(i => i.isPreorder);
+        const hasPreorder = cartItems.some((i) => i.isPreorder);
 
         if (hasPreorder && formData.depositType === "PARTIAL") {
-            const inStockTotal = cartItems.filter(i => !i.isPreorder).reduce((acc, i) => acc + (i.price * i.quantity), 0);
-            const preOrderTotal = cartItems.filter(i => i.isPreorder).reduce((acc, i) => acc + (i.price * i.quantity), 0);
-            amountToPay = inStockTotal + (preOrderTotal / 2) + shippingFee;
+          const inStockTotal = cartItems
+            .filter((i) => !i.isPreorder)
+            .reduce((acc, i) => acc + i.price * i.quantity, 0);
+          const preOrderTotal = cartItems
+            .filter((i) => i.isPreorder)
+            .reduce((acc, i) => acc + i.price * i.quantity, 0);
+          amountToPay = inStockTotal + preOrderTotal / 2 + shippingFee;
         } else {
-            amountToPay = order.finalPrice;
+          amountToPay = order.finalPrice;
         }
 
         const paymentUrl = await createVNPayPayment(amountToPay, order.orderId);
-        
+
         // Open Popup
-        const width = 600, height = 700;
-        const left = (window.innerWidth / 2) - (width / 2);
-        const top = (window.innerHeight / 2) - (height / 2);
-        const popup = window.open(paymentUrl, "VNPay Payment", `width=${width},height=${height},left=${left},top=${top}`);
-        
+        const width = 600,
+          height = 700;
+        const left = window.innerWidth / 2 - width / 2;
+        const top = window.innerHeight / 2 - height / 2;
+        const popup = window.open(
+          paymentUrl,
+          "VNPay Payment",
+          `width=${width},height=${height},left=${left},top=${top}`,
+        );
+
+        if (!popup) {
+          await cancelPendingOrderAndExit(
+            order.orderId,
+            "Unable to open VNPay window. Please allow popups and try again.",
+          );
+          return;
+        }
+
         setPaymentWindow(popup);
         setWaitingPayment(true);
+        let popupCloseHandled = false;
 
         // Start Polling backend for payment confirmation
         const pollInterval = setInterval(async () => {
-           try {
-              const updatedOrder = await getOrderDetails(order.orderId);
+          if (paymentHandledRef.current) {
+            clearInterval(pollInterval);
+            return;
+          }
 
-              if (updatedOrder.paymentStatus === "PAID") {
-                  clearInterval(pollInterval);
-                  popup.close();
-                  setSuccess(true);
-                  // ✅ Chỉ xóa giỏ hàng khi thanh toán THÀNH CÔNG
-                  try {
-                      await clearCartService();
-                  } catch (e) {
-                      console.error("Cart clear failed:", e);
-                  }
-                  localStorage.setItem("cart", JSON.stringify([]));
-                  window.dispatchEvent(new Event("storage"));
-                  setTimeout(() => navigate("/order-success", { state: { order: updatedOrder } }), 2200);
+          if (popup.closed && !popupCloseHandled) {
+            popupCloseHandled = true;
+            clearInterval(pollInterval);
+
+            (async () => {
+              try {
+                const latestOrder = await getOrderDetails(order.orderId);
+                const isPaid =
+                  latestOrder.paymentStatus === "PAID" ||
+                  latestOrder.paymentStatus === "PAID_FULL";
+
+                if (isPaid) {
+                  finalizeVnPaySuccess();
                   return;
+                }
+              } catch (statusErr) {
+                console.error("Final payment status check failed:", statusErr);
               }
-              
-              if (popup.closed) {
-                  clearInterval(pollInterval);
-                  // ❌ TỰ ĐỘNG HỦY ĐƠN NẾU ĐÓNG POPUP MÀ CHƯA THANH TOÁN
-                  try {
-                      await cancelOrder(order.orderId);
-                  } catch (err) {
-                      console.error("Cleanup failed:", err);
-                  }
-                  
-                  setWaitingPayment(false);
-                  setPlacing(false);
-                  showToast("Payment cancelled. Order has been removed.");
-              }
-           } catch (pollErr) {
-              console.error("Polling error:", pollErr);
-           }
+
+              await cancelPendingOrderAndExit(
+                order.orderId,
+                "Payment window closed.",
+              );
+            })();
+
+            return;
+          }
+
+          try {
+            const updatedOrder = await getOrderDetails(order.orderId);
+
+            if (
+              updatedOrder.paymentStatus === "PAID" ||
+              updatedOrder.paymentStatus === "PAID_FULL"
+            ) {
+              clearInterval(pollInterval);
+              popup?.close();
+              finalizeVnPaySuccess();
+              return;
+            }
+          } catch (pollErr) {
+            console.error("Polling error:", pollErr);
+          }
         }, 3000);
 
-        // Auto-stop polling after 10 minutes
-        setTimeout(() => clearInterval(pollInterval), 600000);
+        // Auto-stop polling after 10 minutes if still unresolved
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          if (!paymentHandledRef.current) {
+            clearPaymentState();
+            showToast("Payment confirmation timeout. Please check My Orders.");
+          }
+        }, 600000);
         return;
       }
 
@@ -340,13 +497,16 @@ function CheckoutPage() {
       setSuccess(true);
       // ✅ Xóa giỏ hàng cho đơn COD (vì đơn này coi như thành công bước đầu)
       try {
-          await clearCartService();
-      } catch (e) {
-          console.error("Cart clear failed:", e);
+        await clearCartService();
+      } catch (error) {
+        console.error("Cart clear failed:", error);
       }
       localStorage.setItem("cart", JSON.stringify([]));
       window.dispatchEvent(new Event("storage"));
-      setTimeout(() => navigate("/order-success", { state: { order: order } }), 2200);
+      setTimeout(
+        () => navigate("/order-success", { state: { order: order } }),
+        2200,
+      );
     } catch (error) {
       showToast(error.message || "Order failed");
       setPlacing(false);
@@ -359,7 +519,7 @@ function CheckoutPage() {
         <div className="text-center max-w-sm animate-pulse">
           <FiCheck size={40} className="text-green-500 mx-auto mb-4" />
           <h2 className="text-2xl font-semibold mb-2">Order Successful!</h2>
-          <p className="text-stone-400">Redirecting to home page...</p>
+          <p className="text-stone-400">Redirecting...</p>
         </div>
       </div>
     );
@@ -450,7 +610,7 @@ function CheckoutPage() {
               Payment
             </h2>
 
-            {cartItems.some(i => i.isPreorder) && (
+            {cartItems.some((i) => i.isPreorder) && (
               <div className="mb-6 animate-fadeIn">
                 <p className="text-[10px] text-indigo-500 tracking-[0.2em] font-bold uppercase mb-3 px-1">
                   Pre-order Options
@@ -458,18 +618,26 @@ function CheckoutPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setFormData(p => ({ ...p, depositType: "FULL" }))}
+                    onClick={() =>
+                      setFormData((p) => ({ ...p, depositType: "FULL" }))
+                    }
                     className={`py-3 px-4 rounded-xl border-2 text-sm font-semibold transition-all ${
-                      formData.depositType !== "PARTIAL" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-stone-100 text-stone-400"
+                      formData.depositType !== "PARTIAL"
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-stone-100 text-stone-400"
                     }`}
                   >
                     Full Payment (100%)
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFormData(p => ({ ...p, depositType: "PARTIAL" }))}
+                    onClick={() =>
+                      setFormData((p) => ({ ...p, depositType: "PARTIAL" }))
+                    }
                     className={`py-3 px-4 rounded-xl border-2 text-sm font-semibold transition-all ${
-                      formData.depositType === "PARTIAL" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-stone-100 text-stone-400"
+                      formData.depositType === "PARTIAL"
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-stone-100 text-stone-400"
                     }`}
                   >
                     Deposit (50%)
@@ -483,7 +651,7 @@ function CheckoutPage() {
 
             <div className="space-y-3">
               {/* COD */}
-              {!cartItems.some(i => i.isPreorder) && (
+              {!cartItems.some((i) => i.isPreorder) && (
                 <div
                   onClick={() => setPaymentMethod("COD")}
                   className={`p-4 border rounded-xl flex items-center gap-3 cursor-pointer transition-all ${
@@ -492,9 +660,17 @@ function CheckoutPage() {
                       : "border-stone-200 hover:border-stone-300"
                   }`}
                 >
-                  <FiTruck className={paymentMethod === "COD" ? "text-black" : "text-stone-400"} />
+                  <FiTruck
+                    className={
+                      paymentMethod === "COD" ? "text-black" : "text-stone-400"
+                    }
+                  />
                   <div>
-                    <p className={`text-sm font-medium ${paymentMethod === "COD" ? "text-black" : "text-stone-500"}`}>Cash on Delivery (COD)</p>
+                    <p
+                      className={`text-sm font-medium ${paymentMethod === "COD" ? "text-black" : "text-stone-500"}`}
+                    >
+                      Cash on Delivery (COD)
+                    </p>
                   </div>
                 </div>
               )}
@@ -508,9 +684,19 @@ function CheckoutPage() {
                     : "border-stone-200 hover:border-stone-300"
                 }`}
               >
-                <FiCreditCard className={paymentMethod === "VNPAY" ? "text-indigo-600" : "text-stone-400"} />
+                <FiCreditCard
+                  className={
+                    paymentMethod === "VNPAY"
+                      ? "text-indigo-600"
+                      : "text-stone-400"
+                  }
+                />
                 <div>
-                  <p className={`text-sm font-medium ${paymentMethod === "VNPAY" ? "text-black" : "text-stone-500"}`}>VNPay Payment</p>
+                  <p
+                    className={`text-sm font-medium ${paymentMethod === "VNPAY" ? "text-black" : "text-stone-500"}`}
+                  >
+                    VNPay Payment
+                  </p>
                 </div>
               </div>
             </div>
@@ -524,15 +710,52 @@ function CheckoutPage() {
           <div className="space-y-4 mb-6 max-h-60 overflow-y-auto pr-2">
             {cartItems.map((item) => (
               <div key={item.cartItemId} className="flex gap-3 text-sm">
-                <img src={item.image} className="w-12 h-12 rounded-lg object-cover border border-stone-100" />
+                <img
+                  src={item.image}
+                  className="w-12 h-12 rounded-lg object-cover border border-stone-100"
+                />
                 <div className="flex-1 min-w-0 flex justify-between">
                   <div>
                     <p className="font-medium truncate pr-2">{item.name}</p>
-                    <p className="text-xs text-stone-400">Qty: {item.quantity} · {item.price.toLocaleString()}₫</p>
-                    {item.isLens && !item.isPreorder && <p className="text-[10px] text-indigo-500 font-bold mt-0.5 tracking-tight uppercase">Prescription Order</p>}
+                    <p className="text-xs text-stone-400">
+                      Qty: {item.quantity} · {item.price.toLocaleString()}₫
+                    </p>
+                    {item.isPreorder && (
+                      <p className="text-[10px] text-amber-600 font-bold mt-0.5 tracking-tight uppercase">
+                        Pre-order item
+                      </p>
+                    )}
+                    {item.isLens && !item.isPreorder && (
+                      <p className="text-[10px] text-indigo-500 font-bold mt-0.5 tracking-tight uppercase">
+                        Prescription Order
+                      </p>
+                    )}
                   </div>
-                  <button onClick={() => removeItem(item.productId, item.variant?.variantId, item.cartItemId)} className="text-stone-400 hover:text-red-500 p-1 -mt-1 -mr-2 h-fit" title="Remove">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      removeItem(
+                        item.productId,
+                        item.variant?.variantId,
+                        item.cartItemId,
+                      )
+                    }
+                    className="text-stone-400 hover:text-red-500 p-1 -mt-1 -mr-2 h-fit"
+                    title="Remove"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -553,18 +776,27 @@ function CheckoutPage() {
                 {totalWithShipping.toLocaleString()}₫
               </span>
             </div>
-            {cartItems.some(i => i.isPreorder) && formData.depositType === "PARTIAL" && (
-              <div className="flex justify-between font-bold text-lg pt-2 border-t border-indigo-100 bg-indigo-50/50 -mx-6 px-6 py-2 mt-2">
-                <span className="text-indigo-600 text-sm">Pay Today (Items + Shipping)</span>
-                <span className="text-indigo-600">
-                  {(
-                    cartItems.filter(i => !i.isPreorder).reduce((acc, i) => acc + (i.price * i.quantity), 0) +
-                    (cartItems.filter(i => i.isPreorder).reduce((acc, i) => acc + (i.price * i.quantity), 0) / 2) +
-                    shippingFee
-                  ).toLocaleString()}₫
-                </span>
-              </div>
-            )}
+            {cartItems.some((i) => i.isPreorder) &&
+              formData.depositType === "PARTIAL" && (
+                <div className="flex justify-between font-bold text-lg pt-2 border-t border-indigo-100 bg-indigo-50/50 -mx-6 px-6 py-2 mt-2">
+                  <span className="text-indigo-600 text-sm">
+                    Pay Today (Items + Shipping)
+                  </span>
+                  <span className="text-indigo-600">
+                    {(
+                      cartItems
+                        .filter((i) => !i.isPreorder)
+                        .reduce((acc, i) => acc + i.price * i.quantity, 0) +
+                      cartItems
+                        .filter((i) => i.isPreorder)
+                        .reduce((acc, i) => acc + i.price * i.quantity, 0) /
+                        2 +
+                      shippingFee
+                    ).toLocaleString()}
+                    ₫
+                  </span>
+                </div>
+              )}
           </div>
           <button
             type="submit"
@@ -575,46 +807,64 @@ function CheckoutPage() {
           </button>
         </div>
       </form>
-      
+
       {/* ── PAYING OVERLAY ── */}
       <AnimatePresence>
         {waitingPayment && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 text-center"
+            className="fixed inset-0 z-100 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 text-center"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl"
             >
               <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                 <FiCreditCard size={32} className="animate-pulse" />
+                <FiCreditCard size={32} className="animate-pulse" />
               </div>
-              <h3 className="text-xl font-bold text-stone-900 mb-2">Awaiting Payment</h3>
+              <h3 className="text-xl font-bold text-stone-900 mb-2">
+                Awaiting Payment
+              </h3>
               <p className="text-sm text-stone-500 mb-8 leading-relaxed">
-                A secure payment window has been opened. Please complete your transaction there.
+                A secure payment window has been opened. Please complete your
+                transaction there.
               </p>
-              
+
               <div className="space-y-3">
                 <div className="flex items-center justify-center gap-3 text-blue-600 font-bold text-xs uppercase tracking-widest bg-blue-50 py-3 rounded-2xl">
-                   <div className="w-4 h-4 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin" />
-                   Waiting for response...
+                  <div className="w-4 h-4 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin" />
+                  Waiting for response...
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => paymentWindow?.focus()}
                   className="w-full py-4 text-stone-400 hover:text-stone-900 text-xs font-bold uppercase tracking-widest transition-colors"
                 >
                   Click here if window is hidden
+                </button>
+
+                <button
+                  onClick={async () => {
+                    paymentWindow?.close();
+                    await cancelPendingOrderAndExit(
+                      pendingOrderId,
+                      "Payment cancelled.",
+                    );
+                  }}
+                  className="w-full py-3 rounded-2xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold uppercase tracking-widest transition-colors"
+                >
+                  I cancelled payment
                 </button>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <Toast message={toast.message} visible={toast.visible} />
     </div>
   );
 }

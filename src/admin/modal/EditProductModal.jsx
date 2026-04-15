@@ -20,7 +20,6 @@ import {
   deleteVariant,
   getProductById,
   updateProduct,
-  updateVariant,
   updateVariantQuantity,
 } from "../services/productService";
 
@@ -51,11 +50,12 @@ function Stepper({ step }) {
             >
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300 border-2
-                  ${done
-                    ? "bg-gradient-to-br from-blue-500 to-indigo-500 border-transparent text-white shadow-lg shadow-blue-200"
-                    : active
-                      ? "bg-white border-blue-500 text-blue-600 shadow-lg shadow-blue-100 ring-4 ring-blue-50"
-                      : "bg-white border-slate-200 text-slate-300"
+                  ${
+                    done
+                      ? "bg-gradient-to-br from-blue-500 to-indigo-500 border-transparent text-white shadow-lg shadow-blue-200"
+                      : active
+                        ? "bg-white border-blue-500 text-blue-600 shadow-lg shadow-blue-100 ring-4 ring-blue-50"
+                        : "bg-white border-slate-200 text-slate-300"
                   }`}
               >
                 {done ? <FiCheck size={15} strokeWidth={3} /> : s}

@@ -44,7 +44,10 @@ function App() {
           <Route path="/prescription/:id" element={<PrescriptionPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/order-success" element={<OrderSuccessPage />} />
-          <Route path="/shipping-progress/:id" element={<ShippingProgressPage />} />
+          <Route
+            path="/shipping-progress/:id"
+            element={<ShippingProgressPage />}
+          />
           <Route path="/order-feedback" element={<OrderFeedbackPage />} />
           <Route path="/return-request" element={<ReturnFormPage />} />
           <Route path="/my-orders" element={<OrderHistoryPage />} />
@@ -57,7 +60,7 @@ function App() {
             </AdminRoute>
           }
         >
-          <Route path="/dashboard/" element={<AdminOverview />} />
+          <Route path="/dashboard" element={<AdminOverview />} />
           <Route path="/dashboard/profile" element={<AdminProfile />} />
           <Route path="/dashboard/products" element={<AdminProducts />} />
           <Route path="/dashboard/orders" element={<AdminOrders />} />
@@ -66,9 +69,14 @@ function App() {
             element={<AdminPrescription />}
           />
           <Route path="/dashboard/preoders" element={<AdminPreorder />} />
-            <Route path="/dashboard/return-requests" element={<ReturnRequestManagementPage />} />
-            <Route path="/dashboard/return-requests/:requestId" element={<ReturnRequestDetailPage />} />
-
+          <Route
+            path="/dashboard/return-requests"
+            element={<ReturnRequestManagementPage />}
+          />
+          <Route
+            path="/dashboard/return-requests/:requestId"
+            element={<ReturnRequestDetailPage />}
+          />
         </Route>
       </Routes>
     </div>

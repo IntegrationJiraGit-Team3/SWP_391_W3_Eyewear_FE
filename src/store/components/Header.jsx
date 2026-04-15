@@ -36,12 +36,17 @@ function Header() {
 
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const userRole = String(currentUser?.role || "").toUpperCase();
+  const canAccessDashboard =
+    userRole === "ADMIN" || userRole === "OPERATIONAL_STAFF";
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   const fetchNotifications = async () => {
     if (currentUser?.userId) {
-      const data = await notificationService.getNotifications(currentUser.userId);
+      const data = await notificationService.getNotifications(
+        currentUser.userId,
+      );
       setNotifications(data);
     }
   };
@@ -206,7 +211,7 @@ function Header() {
                           <button
                             onClick={async () => {
                               await notificationService.markAllAsRead(
-                                currentUser.userId
+                                currentUser.userId,
                               );
                               fetchNotifications();
                             }}
@@ -219,7 +224,7 @@ function Header() {
                           onClick={async () => {
                             if (window.confirm("Clear all notifications?")) {
                               await notificationService.clearAllNotifications(
-                                currentUser.userId
+                                currentUser.userId,
                               );
                               fetchNotifications();
                             }
@@ -248,12 +253,12 @@ function Header() {
                               onClick={async () => {
                                 if (!n.isRead) {
                                   await notificationService.markAsRead(
-                                    n.notificationId
+                                    n.notificationId,
                                   );
                                   fetchNotifications();
                                 }
                                 setShowNotifications(false);
-                                
+
                                 const type = n.type?.toUpperCase();
                                 const refId = n.referenceId;
 
@@ -268,7 +273,9 @@ function Header() {
                                   } else {
                                     navigate("/my-orders");
                                   }
-                                } else if (n.title?.toLowerCase().includes("order")) {
+                                } else if (
+                                  n.title?.toLowerCase().includes("order")
+                                ) {
                                   // Fallback for legacy notifications or non-typed ones
                                   navigate("/my-orders");
                                 }
@@ -342,6 +349,18 @@ function Header() {
                         {currentUser.email}
                       </p>
                     </div>
+
+                    <Link
+                      to="/dashboard"
+                      onClick={() => setShowUserMenu(false)}
+                      className={`block w-full px-4 py-2.5 text-sm transition-colors font-medium ${
+                        canAccessDashboard
+                          ? "text-stone-600 hover:bg-stone-50 hover:text-blue-600"
+                          : "hidden"
+                      }`}
+                    >
+                      Dashboard
+                    </Link>
 
                     <Link
                       to="/my-orders"

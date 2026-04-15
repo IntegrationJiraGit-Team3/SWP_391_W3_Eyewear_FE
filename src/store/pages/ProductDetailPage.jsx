@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import {
   FiShoppingBag,
@@ -40,6 +40,7 @@ function StarRow({ rating, size = 14 }) {
 function ProductDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [activeImg, setActiveImg] = useState(0);
   const [activeColor, setActiveColor] = useState(0);
@@ -183,18 +184,32 @@ function ProductDetailPage() {
   const product = {
     id: productData.id || productData.productId,
     name: productData.name || "No name",
-    price: formatPrice(productData.price || productData.variants?.[0]?.price || 0),
+    price: formatPrice(
+      productData.price || productData.variants?.[0]?.price || 0,
+    ),
     priceNum: productData.price || productData.variants?.[0]?.price || 0,
-    category: (productData.category || productData.productType || "").toLowerCase(),
+    category: (
+      productData.category ||
+      productData.productType ||
+      ""
+    ).toLowerCase(),
     description: productData.description,
-    images: productData.variants?.map((v) => v.imageUrl) || ["https://via.placeholder.com/500"],
+    images: productData.variants?.map((v) => v.imageUrl) || [
+      "https://via.placeholder.com/500",
+    ],
     colors: productData.variants?.map((v) => v.color) || [],
     specs: [
       { label: "Brand", value: productData.brand },
-      { label: "Category", value: productData.category || productData.productType },
+      {
+        label: "Category",
+        value: productData.category || productData.productType,
+      },
       {
         label: "Stock",
-        value: productData.variants?.reduce((sum, v) => sum + v.stockQuantity, 0),
+        value: productData.variants?.reduce(
+          (sum, v) => sum + v.stockQuantity,
+          0,
+        ),
       },
       {
         label: "Prescription Support",
@@ -204,7 +219,9 @@ function ProductDetailPage() {
   };
 
   const selectedVariantUI = productData.variants?.[activeColor];
-  let stockText = "", stockColor = "", isOutOfStock = false;
+  let stockText = "",
+    stockColor = "",
+    isOutOfStock = false;
 
   if (!selectedVariantUI || selectedVariantUI.stockQuantity === 0) {
     stockText = "Out of stock · Pre-order available";
@@ -221,11 +238,26 @@ function ProductDetailPage() {
   const maxStock = selectedVariantUI?.stockQuantity || 0;
 
   const handleAddToCart = async () => {
-    const productCat = (productData.category || productData.productType || "").toLowerCase();
+    const currentUser =
+      localStorage.getItem("currentUser") || localStorage.getItem("token");
+    if (!currentUser) {
+      showToast("Please login to add item to cart.");
+      const from = `${location.pathname}${location.search}${location.hash}`;
+      navigate("/login", { state: { from } });
+      return;
+    }
+
+    const productCat = (
+      productData.category ||
+      productData.productType ||
+      ""
+    ).toLowerCase();
     const selectedVariant = productData.variants[activeColor];
     if (productCat === "frame") {
       // Go directly to prescription page
-      navigate(`/prescription/${product.id}?variantId=${selectedVariant.variantId}&quantity=${quantity}`);
+      navigate(
+        `/prescription/${product.id}?variantId=${selectedVariant.variantId}&quantity=${quantity}`,
+      );
       return;
     }
 
@@ -258,7 +290,11 @@ function ProductDetailPage() {
       brand: productData.brand,
       price: finalPrice,
       unitPrice: finalPrice,
-      imageUrl: selectedVariant.imageUrl || productData.imageUrl || productData.img || "",
+      imageUrl:
+        selectedVariant.imageUrl ||
+        productData.imageUrl ||
+        productData.img ||
+        "",
       quantity,
       variant: selectedVariant,
       variantColor: selectedVariant.color,
@@ -276,49 +312,53 @@ function ProductDetailPage() {
     localStorage.setItem("cart", JSON.stringify(cart));
     window.dispatchEvent(new Event("storage"));
 
-    // Only call backend API if user is logged in
-    const currentUser = localStorage.getItem("currentUser") || localStorage.getItem("token");
-    if (currentUser) {
-      try {
-        // Prepare prescription payload if manual entry is selected
-        const isLens = lensOption === "manual";
+    try {
+      // Prepare prescription payload if manual entry is selected
+      const isLens = lensOption === "manual";
 
-        const apiRes = await addToCartService({
-          productId: productData.id || productData.productId,
-          variantId: selectedVariant.variantId,
-          quantity,
-          isLens,
-          sphLeft: isLens ? parseFloat(prescription.eyes.left.sphere) || 0 : null,
-          sphRight: isLens ? parseFloat(prescription.eyes.right.sphere) || 0 : null,
-          cylLeft: isLens ? parseFloat(prescription.eyes.left.cylinder) || 0 : null,
-          cylRight: isLens ? parseFloat(prescription.eyes.right.cylinder) || 0 : null,
-          axisLeft: isLens ? parseInt(prescription.eyes.left.axis) || 0 : null,
-          axisRight: isLens ? parseInt(prescription.eyes.right.axis) || 0 : null,
-          addLeft: isLens ? parseFloat(prescription.eyes.left.add) || 0 : null,
-          addRight: isLens ? parseFloat(prescription.eyes.right.add) || 0 : null,
-          pd: isLens ? parseFloat(prescription.pd) || 0 : null,
-        });
+      const apiRes = await addToCartService({
+        productId: productData.id || productData.productId,
+        variantId: selectedVariant.variantId,
+        quantity,
+        isLens,
+        sphLeft: isLens ? parseFloat(prescription.eyes.left.sphere) || 0 : null,
+        sphRight: isLens
+          ? parseFloat(prescription.eyes.right.sphere) || 0
+          : null,
+        cylLeft: isLens
+          ? parseFloat(prescription.eyes.left.cylinder) || 0
+          : null,
+        cylRight: isLens
+          ? parseFloat(prescription.eyes.right.cylinder) || 0
+          : null,
+        axisLeft: isLens ? parseInt(prescription.eyes.left.axis) || 0 : null,
+        axisRight: isLens ? parseInt(prescription.eyes.right.axis) || 0 : null,
+        addLeft: isLens ? parseFloat(prescription.eyes.left.add) || 0 : null,
+        addRight: isLens ? parseFloat(prescription.eyes.right.add) || 0 : null,
+        pd: isLens ? parseFloat(prescription.pd) || 0 : null,
+      });
 
-        if (apiRes) {
-          // Save preorder state locally to bypass backend strict API validation rejection (500)
-          if (isOutOfStock) {
-            try {
-              const preorders = JSON.parse(localStorage.getItem("frontend_preorders")) || {};
-              preorders[selectedVariant.variantId] = true;
-              localStorage.setItem("frontend_preorders", JSON.stringify(preorders));
-            } catch (e) {
-              // ignore
-            }
+      if (apiRes) {
+        // Save preorder state locally to bypass backend strict API validation rejection (500)
+        if (isOutOfStock) {
+          try {
+            const preorders =
+              JSON.parse(localStorage.getItem("frontend_preorders")) || {};
+            preorders[selectedVariant.variantId] = true;
+            localStorage.setItem(
+              "frontend_preorders",
+              JSON.stringify(preorders),
+            );
+          } catch {
+            // ignore
           }
-          showToast(`Added ${quantity} items to cart!`);
-        } else {
-          showToast("Error adding to cart");
         }
-      } catch {
-        showToast("Saved to local cart!");
+        showToast(`Added ${quantity} items to cart!`);
+      } else {
+        showToast("Error adding to cart");
       }
-    } else {
-      // Guest user — already saved to localStorage above
+    } catch {
+      // Keep local cart fallback for transient API errors of logged-in users.
       showToast(`Added ${quantity} items to cart!`);
     }
   };
@@ -420,10 +460,11 @@ function ProductDetailPage() {
                     <button
                       key={i}
                       onClick={() => setActiveImg(i)}
-                      className={`w-[72px] h-[72px] flex-shrink-0 rounded-xl overflow-hidden border-2 bg-white p-1 transition-all ${i === activeImg
+                      className={`w-[72px] h-[72px] flex-shrink-0 rounded-xl overflow-hidden border-2 bg-white p-1 transition-all ${
+                        i === activeImg
                           ? "thumb-ring border-stone-900"
                           : "border-stone-100 hover:border-stone-300"
-                        }`}
+                      }`}
                     >
                       <img
                         src={img}
@@ -561,10 +602,11 @@ function ProductDetailPage() {
                 </button>
                 <button
                   onClick={() => setWished((p) => !p)}
-                  className={`w-12 h-12 flex items-center justify-center rounded-full border-2 transition-all active:scale-95 duration-150 ${wished
+                  className={`w-12 h-12 flex items-center justify-center rounded-full border-2 transition-all active:scale-95 duration-150 ${
+                    wished
                       ? "bg-red-50 border-red-300 text-red-500"
                       : "bg-white border-stone-200 text-stone-400 hover:border-stone-300 hover:text-stone-600"
-                    }`}
+                  }`}
                 >
                   <FiHeart size={16} className={wished ? "fill-red-500" : ""} />
                 </button>
@@ -685,7 +727,10 @@ function ProductDetailPage() {
                     Login to review this product
                   </p>
                   <button
-                    onClick={() => navigate("/login")}
+                    onClick={() => {
+                      const from = `${location.pathname}${location.search}${location.hash}`;
+                      navigate("/login", { state: { from } });
+                    }}
                     className="text-white bg-blue-600 px-5 py-2 rounded-full text-xs font-medium hover:bg-blue-700 transition-colors"
                   >
                     Login
@@ -772,7 +817,12 @@ function ProductDetailPage() {
 }
 
 /* ─── Lens purchase options ─── */
-function LensPurchaseOptions({ lensOption, setLensOption, prescription, setPrescription }) {
+function LensPurchaseOptions({
+  lensOption,
+  setLensOption,
+  prescription,
+  setPrescription,
+}) {
   const handleEye = (side, field, value) => {
     setPrescription((prev) => ({
       ...prev,
@@ -785,14 +835,16 @@ function LensPurchaseOptions({ lensOption, setLensOption, prescription, setPresc
       {/* Option 1 — Manual */}
       <button
         onClick={() => setLensOption(lensOption === "manual" ? null : "manual")}
-        className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left ${lensOption === "manual"
+        className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left ${
+          lensOption === "manual"
             ? "border-emerald-400 bg-emerald-50"
             : "border-stone-200 hover:border-emerald-300 bg-white"
-          }`}
+        }`}
       >
         <div
-          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${lensOption === "manual" ? "bg-emerald-100" : "bg-stone-100"
-            }`}
+          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+            lensOption === "manual" ? "bg-emerald-100" : "bg-stone-100"
+          }`}
         >
           <FiEye
             size={17}
@@ -897,14 +949,16 @@ function LensPurchaseOptions({ lensOption, setLensOption, prescription, setPresc
             lensOption === "no-prescription" ? null : "no-prescription",
           )
         }
-        className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left ${lensOption === "no-prescription"
+        className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left ${
+          lensOption === "no-prescription"
             ? "border-blue-700 bg-blue-600 text-white"
             : "border-stone-200 hover:border-blue-400 bg-white"
-          }`}
+        }`}
       >
         <div
-          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${lensOption === "no-prescription" ? "bg-white/10" : "bg-stone-100"
-            }`}
+          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+            lensOption === "no-prescription" ? "bg-white/10" : "bg-stone-100"
+          }`}
         >
           <FiCheck
             size={17}

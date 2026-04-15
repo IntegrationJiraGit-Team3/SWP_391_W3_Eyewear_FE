@@ -1,35 +1,37 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { updatePaymentStatus } from "../services/orderService";
 
 function PaymentResultPage() {
   const [searchParams] = useSearchParams();
 
-  // Đọc mã "00" (Thành công) hoặc khác "00" (Thất bại) từ chính URL
   const vnp_ResponseCode = searchParams.get("vnp_ResponseCode");
   const vnp_TransactionNo = searchParams.get("vnp_TransactionNo");
-  const vnp_OrderInfo = searchParams.get("vnp_OrderInfo");
-  const vnp_TransactionStatus = searchParams.get("vnp_TransactionStatus");
   const isSuccess = vnp_ResponseCode === "00";
 
-  const [hasProcessed, setHasProcessed] = useState(false);
-
   useEffect(() => {
-    if (!vnp_OrderInfo || hasProcessed) return;
-    
-    // Đánh dấu đã xử lý để tránh StrictMode gọi API 2 lần gây race condition
-    setHasProcessed(true);
-
-    const handleUpdate = async () => {
-        try {
-            await updatePaymentStatus(vnp_OrderInfo, vnp_ResponseCode, vnp_TransactionStatus);
-        } catch (error) {
-            console.error("Payment status update error:", error);
-        }
+    const payload = {
+      type: "VNPAY_RESULT",
+      success: isSuccess,
+      responseCode: vnp_ResponseCode,
+      transactionNo: vnp_TransactionNo,
+      ts: Date.now(),
     };
 
-    handleUpdate();
-  }, [vnp_OrderInfo, vnp_ResponseCode, vnp_TransactionStatus, hasProcessed]);
+    try {
+      localStorage.setItem("vnpay:lastResult", JSON.stringify(payload));
+    } catch (err) {
+      console.error("Store VNPay result failed:", err);
+    }
+
+    try {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage(payload, window.location.origin);
+        setTimeout(() => window.close(), 1200);
+      }
+    } catch (err) {
+      console.error("Post VNPay result failed:", err);
+    }
+  }, [isSuccess, vnp_ResponseCode, vnp_TransactionNo]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -48,7 +50,7 @@ function PaymentResultPage() {
                   strokeLinejoin="round"
                   strokeWidth="2"
                   d="M5 13l4 4L19 7"
-                ></path>
+                />
               </svg>
             </div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
@@ -72,19 +74,32 @@ function PaymentResultPage() {
                   strokeLinejoin="round"
                   strokeWidth="2"
                   d="M6 18L18 6M6 6l12 12"
-                ></path>
+                />
               </svg>
             </div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
               Payment Failed!
             </h2>
             <p className="text-gray-600 mb-6">
-              You cancelled the transaction or an error occurred (Error Code:{" "}
-              {vnp_ResponseCode})
+              You cancelled the transaction or an error occurred.
             </p>
           </>
         )}
-        {/* ... Các nút bấm "Xem đơn hàng" / "Về trang chủ" ... */}
+
+        <div className="flex flex-col gap-3">
+          <Link
+            to="/my-orders"
+            className="w-full rounded-lg bg-black text-white py-3 font-semibold hover:opacity-90"
+          >
+            View Orders
+          </Link>
+          <Link
+            to="/"
+            className="w-full rounded-lg border border-gray-200 py-3 font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Back to Home
+          </Link>
+        </div>
       </div>
     </div>
   );
