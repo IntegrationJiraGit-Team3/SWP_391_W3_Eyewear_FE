@@ -40,14 +40,14 @@ function Header() {
   const canAccessDashboard =
     userRole === "ADMIN" || userRole === "OPERATIONAL_STAFF";
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = notifications.filter((n) => !Boolean(n.isRead)).length;
 
   const fetchNotifications = async () => {
     if (currentUser?.userId) {
       const data = await notificationService.getNotifications(
         currentUser.userId,
       );
-      setNotifications(data);
+      setNotifications(Array.isArray(data) ? data : []);
     }
   };
 
@@ -210,10 +210,20 @@ function Header() {
                         {unreadCount > 0 && (
                           <button
                             onClick={async () => {
-                              await notificationService.markAllAsRead(
-                                currentUser.userId,
+                              const userId =
+                                currentUser?.userId || currentUser?.id;
+                              if (!userId) return;
+
+                              setNotifications((prev) =>
+                                prev.map((item) => ({ ...item, isRead: true })),
                               );
-                              fetchNotifications();
+
+                              const success =
+                                await notificationService.markAllAsRead(userId);
+
+                              if (!success) {
+                                fetchNotifications();
+                              }
                             }}
                             className="text-[10px] font-medium text-blue-600 hover:text-blue-700"
                           >
@@ -251,11 +261,23 @@ function Header() {
                             <div
                               key={n.notificationId}
                               onClick={async () => {
-                                if (!n.isRead) {
-                                  await notificationService.markAsRead(
-                                    n.notificationId,
+                                if (!Boolean(n.isRead) && n.notificationId) {
+                                  setNotifications((prev) =>
+                                    prev.map((item) =>
+                                      item.notificationId === n.notificationId
+                                        ? { ...item, isRead: true }
+                                        : item,
+                                    ),
                                   );
-                                  fetchNotifications();
+
+                                  const success =
+                                    await notificationService.markAsRead(
+                                      n.notificationId,
+                                    );
+
+                                  if (!success) {
+                                    fetchNotifications();
+                                  }
                                 }
                                 setShowNotifications(false);
 
@@ -281,7 +303,7 @@ function Header() {
                                 }
                               }}
                               className={`px-4 py-3 border-b border-stone-50 hover:bg-stone-50 cursor-pointer transition-colors ${
-                                !n.isRead ? "bg-blue-50/30" : ""
+                                !Boolean(n.isRead) ? "bg-blue-50/30" : ""
                               }`}
                             >
                               <div className="flex justify-between items-start mb-1">

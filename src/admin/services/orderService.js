@@ -1,8 +1,61 @@
 import {
   getAllOrdersApi,
+  updatePaymentStatusApi,
   updateOrderStatusApi,
   getOrderByIdApi,
 } from "../api/orderApi";
+
+const normalizePaymentToken = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
+const isFullyPaid = (value) => {
+  const token = normalizePaymentToken(value);
+  return [
+    "PAID",
+    "PAID_FULL",
+    "FULLY_PAID",
+    "PAID_IN_FULL",
+    "SETTLED",
+    "COMPLETED",
+  ].includes(token);
+};
+
+const resolveRemainingPaymentStatus = (order) => {
+  const backendRemaining = normalizePaymentToken(
+    order?.remainingPaymentStatus ?? order?.finalPaymentStatus,
+  );
+  if (backendRemaining === "PAID") return "PAID";
+  if (backendRemaining === "UNPAID") return "UNPAID";
+
+  if (isFullyPaid(order?.paymentStatus)) {
+    return "PAID";
+  }
+
+  const remainingAmount = Number(
+    order?.remainingAmount ??
+    (Number(order?.finalPrice ?? order?.totalPrice ?? 0) -
+      Number(order?.depositAmount || 0)),
+  );
+
+  return remainingAmount <= 0 ? "PAID" : "UNPAID";
+};
+
+const resolveRemainingPaymentStage = (order) => {
+  const status = resolveRemainingPaymentStatus(order);
+  if (status === "PAID") return "PAID";
+
+  const isPartial = String(order?.depositType || "").toUpperCase() === "PARTIAL";
+  const method = normalizePaymentToken(order?.paymentMethod);
+
+  if (isPartial && method === "COD") {
+    return "PENDING_CONFIRMATION";
+  }
+
+  return "UNPAID";
+};
 
 // Hàm kiểm tra đơn có toa thuốc hay không (Broad check)
 const checkIfHasPrescription = (items = []) => {
@@ -41,7 +94,8 @@ export const getAllOrders = async () => {
       depositType: o.depositType,
       status: mapStatus(o.status),
       paymentStatus: o.paymentStatus,
-      remainingPaymentStatus: o.paymentStatus === "PAID_FULL" ? "PAID" : "UNPAID",
+      remainingPaymentStatus: resolveRemainingPaymentStatus(o),
+      remainingPaymentStage: resolveRemainingPaymentStage(o),
       createdAt: new Date(o.orderDate || Date.now()).toLocaleDateString("vi-VN"),
       rawDate: o.orderDate ? new Date(o.orderDate) : new Date(),
       orderItems: items,
@@ -69,7 +123,8 @@ export const getOrderById = async (id) => {
     status: mapStatus(o.status),
     createdAt: new Date(o.orderDate || Date.now()).toLocaleDateString("vi-VN"),
     paymentStatus: o.paymentStatus,
-    remainingPaymentStatus: o.paymentStatus === "PAID_FULL" ? "PAID" : "UNPAID",
+    remainingPaymentStatus: resolveRemainingPaymentStatus(o),
+    remainingPaymentStage: resolveRemainingPaymentStage(o),
     orderItems: items,
     hasPrescription,
   };
@@ -82,6 +137,11 @@ export const updateOrderStatus = async (orderId, status) => {
   if (backendStatus === "CANCELLED") backendStatus = "CANCELED";
 
   const res = await updateOrderStatusApi(orderId, backendStatus);
+  return res.data;
+};
+
+export const updatePaymentStatus = async (orderId, status) => {
+  const res = await updatePaymentStatusApi(orderId, status);
   return res.data;
 };
 

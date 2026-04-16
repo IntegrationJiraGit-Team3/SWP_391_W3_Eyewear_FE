@@ -1,14 +1,18 @@
 import { useEffect } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { updatePaymentStatus } from "../services/orderService";
 
 function PaymentResultPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const vnp_ResponseCode = searchParams.get("vnp_ResponseCode");
   const vnp_TransactionNo = searchParams.get("vnp_TransactionNo");
   const isSuccess = vnp_ResponseCode === "00";
 
   useEffect(() => {
+    let redirectTimer = null;
+
     const payload = {
       type: "VNPAY_RESULT",
       success: isSuccess,
@@ -17,21 +21,56 @@ function PaymentResultPage() {
       ts: Date.now(),
     };
 
-    try {
-      localStorage.setItem("vnpay:lastResult", JSON.stringify(payload));
-    } catch (err) {
-      console.error("Store VNPay result failed:", err);
-    }
-
-    try {
-      if (window.opener && !window.opener.closed) {
-        window.opener.postMessage(payload, window.location.origin);
-        setTimeout(() => window.close(), 1200);
+    const run = async () => {
+      try {
+        localStorage.setItem("vnpay:lastResult", JSON.stringify(payload));
+      } catch (err) {
+        console.error("Store VNPay result failed:", err);
       }
-    } catch (err) {
-      console.error("Post VNPay result failed:", err);
-    }
-  }, [isSuccess, vnp_ResponseCode, vnp_TransactionNo]);
+
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(payload, window.location.origin);
+          setTimeout(() => window.close(), 1200);
+        }
+      } catch (err) {
+        console.error("Post VNPay result failed:", err);
+      }
+
+      if (!isSuccess) return;
+
+      try {
+        const pendingContextRaw = localStorage.getItem(
+          "vnpay:pendingRemainingPayment",
+        );
+        if (!pendingContextRaw) return;
+
+        const pendingContext = JSON.parse(pendingContextRaw);
+        const orderId = pendingContext?.orderId;
+        if (!orderId) return;
+
+        await updatePaymentStatus(orderId, "PAID_FULL");
+
+        redirectTimer = setTimeout(() => {
+          navigate(`/shipping-progress/${orderId}`, { replace: true });
+        }, 1000);
+      } catch (error) {
+        console.error("Finalize paid order failed:", error);
+      } finally {
+        try {
+          localStorage.removeItem("vnpay:pendingRemainingPayment");
+        } catch (removeErr) {
+          console.error("Clear VNPay context failed:", removeErr);
+        }
+      }
+    };
+
+    run();
+
+    return () => {
+      if (redirectTimer) clearTimeout(redirectTimer);
+    };
+  }, [isSuccess, navigate, vnp_ResponseCode, vnp_TransactionNo]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

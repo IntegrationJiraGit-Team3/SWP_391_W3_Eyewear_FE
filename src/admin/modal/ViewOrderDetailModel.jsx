@@ -19,6 +19,7 @@ import {
   getShipmentByOrder,
   updateShipment,
 } from "../services/shipmentService";
+import { updatePaymentStatus } from "../services/orderService";
 
 const ORDER_STATUS_OPTIONS = [
   { value: "PENDING", label: "Pending" },
@@ -149,16 +150,15 @@ function ViewOrderDetailsModal({
   const [shipment, setShipment] = useState(null);
   const [loadingShipment, setLoadingShipment] = useState(false);
   const [shipmentForm, setShipmentForm] = useState({
-    carrier: "GHN",
     trackingNumber: "",
     status: "CREATED",
   });
   const [savingShipment, setSavingShipment] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
   const [prescriptionActionMap, setPrescriptionActionMap] = useState({});
 
   useEffect(() => {
     if (!order?.id) return;
-
     const loadShipment = async () => {
       try {
         setLoadingShipment(true);
@@ -244,6 +244,26 @@ function ViewOrderDetailsModal({
       alert("Save shipment failed");
     } finally {
       setSavingShipment(false);
+    }
+  };
+
+  const handleMarkRemainingPaid = async () => {
+    if (!order?.id) return;
+
+    const confirmed = window.confirm(
+      "Mark the remaining payment as paid for this order?",
+    );
+    if (!confirmed) return;
+
+    try {
+      setSavingPayment(true);
+      await updatePaymentStatus(order.id, "PAID_FULL");
+      window.location.reload();
+    } catch (error) {
+      console.error("Mark remaining payment failed:", error);
+      alert(error?.response?.data?.message || "Update payment status failed");
+    } finally {
+      setSavingPayment(false);
     }
   };
 
@@ -426,6 +446,45 @@ function ViewOrderDetailsModal({
                 <div className="text-xs text-gray-500 mt-1">
                   {order.paymentMethod || "N/A"}
                 </div>
+                {order.depositType === "PARTIAL" && (
+                  <>
+                    <div
+                      className={`inline-flex mt-2 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
+                        order.remainingPaymentStage === "PAID"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : order.remainingPaymentStage ===
+                              "PENDING_CONFIRMATION"
+                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                      }`}
+                    >
+                      Remaining payment:{" "}
+                      {order.remainingPaymentStage === "PENDING_CONFIRMATION"
+                        ? "WAITING_CONFIRM"
+                        : order.remainingPaymentStatus || "UNPAID"}
+                    </div>
+                    {order.remainingPaymentStage === "PENDING_CONFIRMATION" && (
+                      <div className="mt-2 text-xs text-blue-700">
+                        Customer selected COD for remaining payment. Please
+                        confirm collection when received.
+                      </div>
+                    )}
+                    {order.remainingPaymentStage !== "PAID" && (
+                      <button
+                        onClick={handleMarkRemainingPaid}
+                        disabled={savingPayment}
+                        className="mt-2 inline-flex items-center justify-center px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                      >
+                        {savingPayment
+                          ? "Saving..."
+                          : order.remainingPaymentStage ===
+                              "PENDING_CONFIRMATION"
+                            ? "Confirm Collected"
+                            : "Mark as Paid"}
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
 
               <div className="rounded-2xl border p-4 bg-gray-50">

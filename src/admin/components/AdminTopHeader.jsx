@@ -9,7 +9,7 @@ import {
   FiUser,
   FiLogOut,
   FiTrash2,
-  FiCheckCircle
+  FiCheckCircle,
 } from "react-icons/fi";
 import { adminMock } from "../data/adminMock";
 import notificationService from "../../store/services/notificationService";
@@ -50,7 +50,7 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 5000); // 5s for real-time feel
-    
+
     const handleStorage = () => {
       try {
         const stored = localStorage.getItem("currentUser");
@@ -67,11 +67,21 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
     };
   }, [admin?.userId, admin?.id]);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = notifications.filter((n) => !Boolean(n.isRead)).length;
 
   const handleMarkAsRead = async (id) => {
-    await notificationService.markAsRead(id);
-    fetchNotifications();
+    if (!id) return;
+
+    setNotifications((prev) =>
+      prev.map((item) =>
+        item.notificationId === id ? { ...item, isRead: true } : item,
+      ),
+    );
+
+    const success = await notificationService.markAsRead(id);
+    if (!success) {
+      fetchNotifications();
+    }
   };
 
   const handleClearAll = async () => {
@@ -187,29 +197,37 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
                   <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? (
                       <div className="px-4 py-8 text-center">
-                        <p className="text-xs text-slate-400">No notifications</p>
+                        <p className="text-xs text-slate-400">
+                          No notifications
+                        </p>
                       </div>
                     ) : (
                       notifications.map((n) => (
                         <div
                           key={n.notificationId}
                           onClick={() => {
-                            if (!n.isRead) handleMarkAsRead(n.notificationId);
-                            
+                            if (!Boolean(n.isRead))
+                              handleMarkAsRead(n.notificationId);
+
                             // Specific Admin navigation
-                            if (n.type === "ORDER") navigate("/dashboard/orders");
-                            else if (n.type === "RETURN") navigate("/dashboard/return-requests");
-                            else if (n.type === "PRESCRIPTION") navigate("/dashboard/prescriptions");
-                            else if (n.type === "PRODUCT") navigate("/dashboard/products");
-                            else if (n.title.toLowerCase().includes("order")) navigate("/dashboard/orders");
-                            
+                            if (n.type === "ORDER")
+                              navigate("/dashboard/orders");
+                            else if (n.type === "RETURN")
+                              navigate("/dashboard/return-requests");
+                            else if (n.type === "PRESCRIPTION")
+                              navigate("/dashboard/prescriptions");
+                            else if (n.type === "PRODUCT")
+                              navigate("/dashboard/products");
+                            else if (n.title.toLowerCase().includes("order"))
+                              navigate("/dashboard/orders");
+
                             setNotifOpen(false);
                           }}
                           className={`px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition cursor-pointer ${
-                            !n.isRead ? "bg-blue-50/40" : ""
+                            !Boolean(n.isRead) ? "bg-blue-50/40" : ""
                           }`}
                         >
-                          {!n.isRead && (
+                          {!Boolean(n.isRead) && (
                             <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" />
                           )}
                           <div>
@@ -229,16 +247,26 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
                   </div>
 
                   <div className="px-4 py-2 border-t border-slate-100 flex justify-between bg-slate-50/50">
-                    <button 
+                    <button
                       onClick={async () => {
-                        await notificationService.markAllAsRead(admin.userId);
-                        fetchNotifications();
+                        const userId = admin?.userId || admin?.id;
+                        if (!userId) return;
+
+                        setNotifications((prev) =>
+                          prev.map((item) => ({ ...item, isRead: true })),
+                        );
+
+                        const success =
+                          await notificationService.markAllAsRead(userId);
+                        if (!success) {
+                          fetchNotifications();
+                        }
                       }}
                       className="text-[10px] text-blue-500 hover:text-blue-700 font-bold flex items-center gap-1"
                     >
                       <FiCheckCircle size={12} /> Mark read
                     </button>
-                    <button 
+                    <button
                       onClick={handleClearAll}
                       className="text-[10px] text-red-500 hover:text-red-700 font-bold flex items-center gap-1"
                     >
