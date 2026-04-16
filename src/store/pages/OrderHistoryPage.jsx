@@ -83,6 +83,25 @@ const returnStatusBadge = (status) => {
   return "bg-gray-50 text-gray-700 border-gray-200";
 };
 
+const isLensLineItem = (item) => {
+  if (!item) return false;
+
+  if (item.lensType || item.lensOptionId) return true;
+
+  const name = String(item.name || item.productName || "").toLowerCase();
+  return name.includes("lens") || name.includes("trong");
+};
+
+const isComboOrder = (order) => {
+  const items = order?.items || [];
+  if (!items.length) return false;
+
+  const hasLens = items.some((item) => isLensLineItem(item));
+  const hasFrame = items.some((item) => !isLensLineItem(item));
+
+  return hasLens && hasFrame;
+};
+
 function OrderHistoryPage() {
   const [orders, setOrders] = useState([]);
   const [returnRequestMap, setReturnRequestMap] = useState({});
@@ -227,6 +246,7 @@ function OrderHistoryPage() {
       <div className="space-y-5">
         {filteredOrders.map((order) => {
           const effectiveStatus = getEffectiveOrderStatus(order);
+          const comboOnlyReturn = isComboOrder(order);
 
           return (
             <div
@@ -271,6 +291,18 @@ function OrderHistoryPage() {
                     {order.paymentMethod || "N/A"} /{" "}
                     {order.paymentStatus || "UNPAID"}
                   </div>
+                  {order.depositType === "PARTIAL" && (
+                    <div
+                      className={`inline-flex mt-2 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
+                        order.remainingPaymentStatus === "PAID"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : "bg-amber-50 text-amber-700 border-amber-200"
+                      }`}
+                    >
+                      Remaining payment:{" "}
+                      {order.remainingPaymentStatus || "UNPAID"}
+                    </div>
+                  )}
                 </div>
 
                 <div className="rounded-2xl bg-gray-50 border p-4">
@@ -359,6 +391,7 @@ function OrderHistoryPage() {
 
                           {effectiveStatus === "COMPLETED" &&
                             item.orderItemId &&
+                            !comboOnlyReturn &&
                             !latestRequest && (
                               <Link
                                 to={`/return-request?orderItemId=${item.orderItemId}&orderId=${order.orderId}`}
@@ -374,6 +407,15 @@ function OrderHistoryPage() {
                   })}
                 </div>
               )}
+
+              {effectiveStatus === "COMPLETED" &&
+                comboOnlyReturn &&
+                !getOrderHasAnyReturnRequest(order) && (
+                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                    This order contains a frame + lens combo. Return/exchange is
+                    allowed for the whole combo only.
+                  </div>
+                )}
 
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link

@@ -202,7 +202,7 @@ function AdminOrders() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1050px] text-sm">
+          <table className="w-full min-w-262.5 text-sm">
             <thead className="bg-gray-50/80 border-b">
               <tr className="text-left text-gray-500">
                 <th className="px-6 py-4 font-semibold">Order Code</th>
@@ -244,7 +244,38 @@ function AdminOrders() {
                   </td>
                   <td className="px-6 py-4">{order.paymentMethod || "N/A"}</td>
                   <td className="px-6 py-4">
-                    {order.paymentStatus || "UNPAID"}
+                    <div className="font-semibold text-gray-800">
+                      {order.paymentStatus || "UNPAID"}
+                    </div>
+                    {order.depositType === "PARTIAL" && (
+                      <div className="mt-1 flex items-center gap-2">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
+                            order.remainingPaymentStage === "PAID"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : order.remainingPaymentStage ===
+                                  "PENDING_CONFIRMATION"
+                                ? "bg-blue-50 text-blue-700 border-blue-200"
+                                : "bg-amber-50 text-amber-700 border-amber-200"
+                          }`}
+                        >
+                          Remaining:{" "}
+                          {order.remainingPaymentStage ===
+                          "PENDING_CONFIRMATION"
+                            ? "WAITING_CONFIRM"
+                            : order.remainingPaymentStatus || "UNPAID"}
+                        </span>
+                        {order.remainingPaymentStage !== "PAID" && (
+                          <span className="text-[11px] text-amber-700">
+                            {(
+                              Number(order.total || 0) -
+                              Number(order.depositAmount || 0)
+                            ).toLocaleString("vi-VN")}{" "}
+                            ₫
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <span

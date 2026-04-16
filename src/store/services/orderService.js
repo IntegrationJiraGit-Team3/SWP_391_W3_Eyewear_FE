@@ -7,6 +7,43 @@ import {
   updatePaymentMethodApi,
 } from "../api/orderApi";
 
+const normalizePaymentToken = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
+const isFullyPaid = (value) => {
+  const token = normalizePaymentToken(value);
+  return [
+    "PAID",
+    "PAID_FULL",
+    "FULLY_PAID",
+    "PAID_IN_FULL",
+    "SETTLED",
+    "COMPLETED",
+  ].includes(token);
+};
+
+const resolveRemainingPaymentStatus = (order) => {
+  const backendRemaining = normalizePaymentToken(
+    order?.remainingPaymentStatus ?? order?.finalPaymentStatus,
+  );
+  if (backendRemaining === "PAID") return "PAID";
+  if (backendRemaining === "UNPAID") return "UNPAID";
+
+  if (isFullyPaid(order?.paymentStatus)) {
+    return "PAID";
+  }
+
+  const remainingAmount = Number(
+    order?.remainingAmount ??
+    (Number(order?.finalPrice || 0) - Number(order?.depositAmount || 0)),
+  );
+
+  return remainingAmount <= 0 ? "PAID" : "UNPAID";
+};
+
 const mapStatus = (status) => {
   const s = status?.toUpperCase() || "PENDING";
   switch (s) {
@@ -74,7 +111,7 @@ export const getMyOrders = async () => {
     depositAmount: order.depositAmount,
     depositType: order.depositType,
     depositPaymentMethod: order.depositPaymentMethod,
-    remainingPaymentStatus: order.paymentStatus === "PAID_FULL" ? "PAID" : "UNPAID",
+    remainingPaymentStatus: resolveRemainingPaymentStatus(order),
     items: (order.orderItems || []).map((item) => ({
       orderItemId: item.orderItemId,
       productId: item.productId,
@@ -123,7 +160,7 @@ export const getOrderDetails = async (id) => {
   return {
     ...order,
     depositPaymentMethod: order.depositPaymentMethod,
-    remainingPaymentStatus: order.paymentStatus === "PAID_FULL" ? "PAID" : "UNPAID",
+    remainingPaymentStatus: resolveRemainingPaymentStatus(order),
     id: order.orderCode,
     orderId: order.orderId,
     date: new Date(order.orderDate).toLocaleDateString("en-US"),

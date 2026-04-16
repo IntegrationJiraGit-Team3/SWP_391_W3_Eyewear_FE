@@ -48,6 +48,42 @@ function ShippingProgressPage() {
   const [shipment, setShipment] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const normalizePaymentToken = (value) =>
+    String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[\s-]+/g, "_");
+
+  const isRemainingPaid = (order) => {
+    const remainingStatus = normalizePaymentToken(
+      order?.remainingPaymentStatus,
+    );
+    if (remainingStatus === "PAID") return true;
+    if (remainingStatus === "UNPAID") return false;
+
+    const paymentStatus = normalizePaymentToken(order?.paymentStatus);
+    if (
+      ["PAID", "PAID_FULL", "FULLY_PAID", "PAID_IN_FULL", "SETTLED"].includes(
+        paymentStatus,
+      )
+    ) {
+      return true;
+    }
+
+    const remainingAmount = Number(
+      order?.remainingAmount ??
+        Number(order?.finalTotal || 0) - Number(order?.depositAmount || 0),
+    );
+    return remainingAmount <= 0;
+  };
+
+  const getRemainingAmount = (order) => {
+    return Number(
+      order?.remainingAmount ??
+        Number(order?.finalTotal || 0) - Number(order?.depositAmount || 0),
+    );
+  };
+
   const loadAll = useCallback(async () => {
     try {
       setLoading(true);
@@ -111,11 +147,15 @@ function ShippingProgressPage() {
   // Keep progress consistent across screens by taking the furthest known step.
   // Example: order is SHIPPING but shipment is still PICKUP_PENDING.
   const activeStep = Math.max(orderStep, shipmentStep);
+  const remainingAmount = getRemainingAmount(order);
+  const isRemainingMethodCOD =
+    normalizePaymentToken(order?.paymentMethod) === "COD";
+  const isAwaitingManualConfirmation =
+    !isRemainingPaid(order) && remainingAmount > 0 && isRemainingMethodCOD;
 
   const handlePayBalance = async (method) => {
     try {
-      const remaining =
-        Number(order?.finalTotal || 0) - Number(order?.depositAmount || 0);
+      const remaining = getRemainingAmount(order);
 
       if (remaining <= 0) {
         showToast("No remaining payment");
@@ -123,6 +163,20 @@ function ShippingProgressPage() {
       }
 
       if (method === "VNPAY") {
+        try {
+          localStorage.setItem(
+            "vnpay:pendingRemainingPayment",
+            JSON.stringify({
+              orderId: order.orderId || order.id,
+              amount: Math.round(remaining),
+              source: "shipping-progress",
+              ts: Date.now(),
+            }),
+          );
+        } catch (storageError) {
+          console.error("Store VNPay payment context failed:", storageError);
+        }
+
         const url = await createVNPayPayment(
           Math.round(remaining),
           order.orderId || order.id,
@@ -132,7 +186,7 @@ function ShippingProgressPage() {
       }
 
       await updatePaymentMethod(order.orderId || order.id, "COD");
-      showToast("Balance payment method updated to COD");
+      showToast("Remaining payment will be collected by COD on delivery");
       loadAll();
     } catch (err) {
       console.error("Pay balance error:", err);
@@ -402,7 +456,8 @@ function ShippingProgressPage() {
             </div>
 
             {order.depositType === "PARTIAL" &&
-              order.remainingPaymentStatus !== "PAID" &&
+              !isRemainingPaid(order) &&
+              remainingAmount > 0 &&
               (order.rawStatus === "Processing" ||
                 order.rawStatus === "Shipping" ||
                 order.rawStatus === "Delivered") && (
@@ -413,28 +468,31 @@ function ShippingProgressPage() {
                   <div className="mt-2 text-sm text-amber-800">
                     Remaining amount:
                     <span className="font-bold ml-1">
-                      {(
-                        Number(order.finalTotal || 0) -
-                        Number(order.depositAmount || 0)
-                      ).toLocaleString("vi-VN")}{" "}
-                      ₫
+                      {getRemainingAmount(order).toLocaleString("vi-VN")} ₫
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 mt-4">
-                    <button
-                      onClick={() => handlePayBalance("VNPAY")}
-                      className="rounded-xl bg-black text-white py-3 font-semibold hover:opacity-90"
-                    >
-                      Pay by VNPay
-                    </button>
-                    <button
-                      onClick={() => handlePayBalance("COD")}
-                      className="rounded-xl border py-3 font-semibold hover:bg-white"
-                    >
-                      Switch to COD for remaining payment
-                    </button>
-                  </div>
+                  {isAwaitingManualConfirmation ? (
+                    <div className="mt-4 rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm text-amber-800">
+                      COD has been selected for the remaining payment. Waiting
+                      for admin confirmation.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3 mt-4">
+                      <button
+                        onClick={() => handlePayBalance("VNPAY")}
+                        className="rounded-xl bg-black text-white py-3 font-semibold hover:opacity-90"
+                      >
+                        Pay by VNPay
+                      </button>
+                      <button
+                        onClick={() => handlePayBalance("COD")}
+                        className="rounded-xl border py-3 font-semibold hover:bg-white"
+                      >
+                        Switch to COD for remaining payment
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -447,8 +505,7 @@ function ShippingProgressPage() {
               </button>
             )}
 
-            {(order.paymentStatus === "PAID" ||
-              order.paymentStatus === "PAID_FULL") && (
+            {isRemainingPaid(order) && (
               <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-800 flex items-start gap-3">
                 <FiCheckCircle className="mt-0.5" />
                 <div>This order has been paid successfully.</div>

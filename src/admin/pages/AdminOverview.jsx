@@ -254,6 +254,17 @@ function AdminOverview() {
   const bestByQuantity = analytics?.bestSellingProductsByQuantity || [];
   const bestByRevenue = analytics?.bestSellingProductsByRevenue || [];
   const orderStatusReport = analytics?.orderStatusReport || [];
+  const topCustomersBySpending = analytics?.topCustomersBySpending || [];
+
+  const topCustomers = useMemo(() => {
+    return topCustomersBySpending.map((item, index) => ({
+      rank: index + 1,
+      userId: item?.userId,
+      customerName: item?.customerName || "Guest",
+      orderCount: Number(item?.orderCount || 0),
+      totalSpent: Number(item?.totalSpent || 0),
+    }));
+  }, [topCustomersBySpending]);
 
   const revenueChartOptions = useMemo(() => {
     return {
@@ -749,6 +760,76 @@ function AdminOverview() {
           )}
         </motion.div>
       </div>
+
+      <motion.div
+        {...fadeUp(0.38)}
+        className="mt-5 bg-white rounded-2xl border border-gray-200 shadow-sm p-5"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">
+              Khách hàng mua nhiều nhất
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Danh sách khách hàng đã mua hàng và tổng số tiền đã chi
+            </p>
+          </div>
+          <FiUsers className="text-indigo-500" size={20} />
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-left text-gray-500">
+                <th className="py-3 pr-4 font-semibold">#</th>
+                <th className="py-3 pr-4 font-semibold">Khách hàng</th>
+                <th className="py-3 pr-4 font-semibold">User ID</th>
+                <th className="py-3 pr-4 font-semibold">Số đơn</th>
+                <th className="py-3 font-semibold text-right">Tổng chi tiêu</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-gray-400">
+                    Loading...
+                  </td>
+                </tr>
+              ) : topCustomers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-gray-400">
+                    Chưa có dữ liệu khách hàng mua hàng trong khoảng thời gian
+                    này
+                  </td>
+                </tr>
+              ) : (
+                topCustomers.map((customer) => (
+                  <tr
+                    key={`${customer.userId ?? customer.customerName}-${customer.rank}`}
+                    className="border-b border-gray-100 last:border-none"
+                  >
+                    <td className="py-3 pr-4 font-semibold text-gray-700">
+                      {customer.rank}
+                    </td>
+                    <td className="py-3 pr-4 text-gray-900 font-medium">
+                      {customer.customerName}
+                    </td>
+                    <td className="py-3 pr-4 text-gray-500">
+                      {customer.userId ?? "-"}
+                    </td>
+                    <td className="py-3 pr-4 text-gray-700">
+                      {customer.orderCount.toLocaleString("vi-VN")}
+                    </td>
+                    <td className="py-3 text-right font-semibold text-gray-900">
+                      {formatCurrency(customer.totalSpent)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </motion.div>
 
       <motion.div
         {...fadeUp(0.4)}
