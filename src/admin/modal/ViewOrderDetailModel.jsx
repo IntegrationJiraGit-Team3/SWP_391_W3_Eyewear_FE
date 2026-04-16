@@ -30,6 +30,7 @@ const ORDER_STATUS_OPTIONS = [
 
 const TERMINAL_STATUS_OPTIONS = [
   { value: "COMPLETED", label: "Completed" },
+  { value: "REFUND", label: "Refund" },
   { value: "CANCELED", label: "Canceled" },
 ];
 
@@ -74,6 +75,9 @@ const badgeClass = (status) => {
     case "DELIVERED":
     case "COMPLETED":
       return "bg-green-50 text-green-700 border border-green-200";
+    case "REFUND":
+    case "REFUNDED":
+      return "bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200";
     case "CANCELED":
       return "bg-red-50 text-red-700 border border-red-200";
     default:
@@ -90,9 +94,13 @@ const getAvailableOrderStatusOptions = (currentStatus) => {
     );
   }
 
-  if (current === "COMPLETED") {
+  if (
+    current === "COMPLETED" ||
+    current === "REFUND" ||
+    current === "REFUNDED"
+  ) {
     return TERMINAL_STATUS_OPTIONS.filter(
-      (option) => option.value === "COMPLETED",
+      (option) => option.value === "COMPLETED" || option.value === "REFUND",
     );
   }
 
@@ -109,7 +117,8 @@ const getAvailableOrderStatusOptions = (currentStatus) => {
 
 const getNextOrderStatusFromShipment = (savedShipment, currentOrderStatus) => {
   const current = normalizeOrderStatus(currentOrderStatus);
-  if (["CANCELED", "COMPLETED"].includes(current)) return null;
+  if (["CANCELED", "COMPLETED", "REFUND", "REFUNDED"].includes(current))
+    return null;
 
   const shipmentStatus = String(savedShipment?.status || "").toUpperCase();
   const hasTrackingNumber =
@@ -145,6 +154,7 @@ function ViewOrderDetailsModal({
     status: "CREATED",
   });
   const [savingShipment, setSavingShipment] = useState(false);
+  const [prescriptionActionMap, setPrescriptionActionMap] = useState({});
 
   useEffect(() => {
     if (!order?.id) return;
@@ -263,6 +273,58 @@ function ViewOrderDetailsModal({
 
     if (!hasRx) return null;
 
+    const prescriptionId = item.prescription?.prescriptionId;
+    const localPrescriptionState = prescriptionId
+      ? prescriptionActionMap[prescriptionId]
+      : null;
+    const backendStatusRaw =
+      item.prescription?.status || item.prescription?.reviewStatus;
+    const normalizedBackendStatus = String(backendStatusRaw || "")
+      .toUpperCase()
+      .trim();
+
+    let effectivePrescriptionStatus = null;
+    if (localPrescriptionState) {
+      effectivePrescriptionStatus = localPrescriptionState;
+    } else if (
+      backendStatusRaw === true ||
+      normalizedBackendStatus === "APPROVED"
+    ) {
+      effectivePrescriptionStatus = "APPROVED";
+    } else if (
+      backendStatusRaw === false ||
+      normalizedBackendStatus === "REJECTED"
+    ) {
+      effectivePrescriptionStatus = "REJECTED";
+    }
+
+    const isActionFinalized =
+      effectivePrescriptionStatus === "APPROVED" ||
+      effectivePrescriptionStatus === "REJECTED";
+
+    const handlePrescriptionDecision = async (approve) => {
+      if (!prescriptionId) return;
+
+      const rejectionNote = approve
+        ? ""
+        : window.prompt("Rejection note:", "Invalid prescription");
+
+      if (!approve && rejectionNote === null) return;
+
+      const ok = await onPrescriptionAction?.(
+        prescriptionId,
+        approve,
+        rejectionNote || "",
+      );
+
+      if (ok !== false) {
+        setPrescriptionActionMap((prev) => ({
+          ...prev,
+          [prescriptionId]: approve ? "APPROVED" : "REJECTED",
+        }));
+      }
+    };
+
     return (
       <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
         <div className="text-xs font-semibold text-indigo-700 mb-2 flex items-center gap-2">
@@ -290,38 +352,32 @@ function ViewOrderDetailsModal({
           <div>{rx.addLeft ?? "—"}</div>
         </div>
 
-        {item.prescription?.prescriptionId && (
+        {prescriptionId && !isActionFinalized && (
           <div className="mt-3 flex gap-2">
             <button
-              onClick={() =>
-                onPrescriptionAction?.(
-                  item.prescription.prescriptionId,
-                  true,
-                  "",
-                )
-              }
+              onClick={() => handlePrescriptionDecision(true)}
               className="rounded-lg bg-emerald-600 text-white px-3 py-2 text-xs font-semibold hover:opacity-90"
             >
               Approve Prescription
             </button>
             <button
-              onClick={() => {
-                const note = window.prompt(
-                  "Rejection note:",
-                  "Invalid prescription",
-                );
-                if (note !== null) {
-                  onPrescriptionAction?.(
-                    item.prescription.prescriptionId,
-                    false,
-                    note,
-                  );
-                }
-              }}
+              onClick={() => handlePrescriptionDecision(false)}
               className="rounded-lg bg-red-600 text-white px-3 py-2 text-xs font-semibold hover:opacity-90"
             >
               Reject Prescription
             </button>
+          </div>
+        )}
+
+        {prescriptionId && effectivePrescriptionStatus === "APPROVED" && (
+          <div className="mt-3 inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+            Prescription approved successfully
+          </div>
+        )}
+
+        {prescriptionId && effectivePrescriptionStatus === "REJECTED" && (
+          <div className="mt-3 inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+            Prescription rejected
           </div>
         )}
       </div>

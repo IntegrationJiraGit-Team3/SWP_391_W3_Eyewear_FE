@@ -141,6 +141,11 @@ function ShippingProgressPage() {
   };
 
   const handleCancelOrder = async () => {
+    if (order?.rawStatus !== "Pending") {
+      showToast("Only pending orders can be cancelled");
+      return;
+    }
+
     const confirmed = window.confirm(
       "Are you sure you want to cancel this order?",
     );
@@ -433,8 +438,7 @@ function ShippingProgressPage() {
                 </div>
               )}
 
-            {(order.rawStatus === "Pending" ||
-              order.rawStatus === "Processing") && (
+            {order.rawStatus === "Pending" && (
               <button
                 onClick={handleCancelOrder}
                 className="w-full rounded-2xl bg-red-600 text-white py-3 font-semibold hover:opacity-90"
