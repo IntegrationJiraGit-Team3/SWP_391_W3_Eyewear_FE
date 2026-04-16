@@ -333,12 +333,17 @@ function EditProductModal({ product, onClose, onUpdate }) {
   const accent = cat ? CC[cat.color] : CC.blue;
 
   useEffect(() => {
-    if (!product?.id) return;
+    const productId = product?.id || product?.productId;
+    if (!productId) return;
 
     const fetchProduct = async () => {
       try {
-        const data = await getProductById(product.id);
-        setForm(data);
+        const data = await getProductById(productId);
+        setForm((prev) => ({
+          ...prev,
+          ...data,
+          id: data?.id || productId,
+        }));
       } catch (err) {
         console.error("Error loading product:", err);
       }
@@ -361,7 +366,7 @@ function EditProductModal({ product, onClose, onUpdate }) {
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name === "type") {
-      setForm({ ...EMPTY_FORM, type: value });
+      setForm((f) => ({ ...f, type: value }));
       return;
     }
     setForm((f) => ({ ...f, [name]: value }));
@@ -423,12 +428,14 @@ function EditProductModal({ product, onClose, onUpdate }) {
     }
 
     try {
-      if (!form.id) {
+      const productId = form.id || product?.id || product?.productId;
+
+      if (!productId) {
         showToast("Product ID not found!", "error");
         return;
       }
       // 🟢 1. update product trước
-      await updateProduct(form.id, form);
+      await updateProduct(productId, form);
       // 🟢 2. update từng variant
       const updatedVariants = await Promise.all(
         form.variants.map((v) => {
@@ -437,7 +444,7 @@ function EditProductModal({ product, onClose, onUpdate }) {
             return updateVariantQuantity(v.variantId, Number(v.stock) || 0);
           }
 
-          return createVariant(form.id, {
+          return createVariant(productId, {
             stockQuantity: Number(v.stock) || 0,
             frameSize: v.frameSize || "",
             color: v.color || "",
@@ -451,6 +458,7 @@ function EditProductModal({ product, onClose, onUpdate }) {
       // ✅ 3. Đồng bộ lại dữ liệu trả về cho UI
       onUpdate({
         ...form,
+        id: productId,
         // 🔥 Đảm bảo ảnh đại diện sản phẩm không bị mất
         img: updatedVariants[0]?.imageUrl || form.image,
         variants: updatedVariants,

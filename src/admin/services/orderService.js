@@ -96,6 +96,8 @@ const mapStatus = (status) => {
     case "SHIPPED": return "delivering";
     case "DELIVERED":
     case "COMPLETED": return "completed";
+    case "REFUND":
+    case "REFUNDED": return "refund";
     case "CANCELED":
     case "CANCELLED": return "cancelled";
     default: return s.toLowerCase();

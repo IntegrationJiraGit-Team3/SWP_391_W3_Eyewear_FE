@@ -22,6 +22,9 @@ const mapStatus = (status) => {
     case "DELIVERED":
     case "COMPLETED":
       return "COMPLETED";
+    case "REFUND":
+    case "REFUNDED":
+      return "REFUND";
     case "CANCELED":
     case "CANCELLED":
       return "CANCELLED";
@@ -45,6 +48,9 @@ const mapStatusLabel = (status) => {
     case "DELIVERED":
     case "COMPLETED":
       return "Delivered";
+    case "REFUND":
+    case "REFUNDED":
+      return "Refund";
     case "CANCELED":
     case "CANCELLED":
       return "Cancelled";
@@ -112,7 +118,7 @@ export const getOrderDetails = async (id) => {
   if (status === "PENDING" || status === "PREORDER") statusCode = 0;
   else if (status === "PROCESSING") statusCode = 1;
   else if (status === "SHIPPING" || status === "DELIVERING" || status === "SHIPPED") statusCode = 2;
-  else if (status === "DELIVERED" || status === "COMPLETED") statusCode = 3;
+  else if (status === "DELIVERED" || status === "COMPLETED" || status === "REFUND" || status === "REFUNDED") statusCode = 3;
 
   return {
     ...order,

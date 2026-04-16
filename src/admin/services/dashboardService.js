@@ -4,6 +4,7 @@ import {
   getRevenueApi,
   getTotalRevenueApi,
   getDashboardSummaryApi,
+  getDashboardAnalyticsApi,
 } from "../api/dashboardApi";
 
 export const getOrdersCount = async () => {
@@ -28,5 +29,10 @@ export const getTotalRevenue = async () => {
 
 export const getDashboardSummary = async (fromDate, toDate) => {
   const res = await getDashboardSummaryApi(fromDate, toDate);
+  return res.data.data;
+};
+
+export const getDashboardAnalytics = async (fromDate, toDate, groupBy = "DAILY") => {
+  const res = await getDashboardAnalyticsApi(fromDate, toDate, groupBy);
   return res.data.data;
 };

@@ -23,3 +23,9 @@ export const getDashboardSummaryApi = async (fromDate, toDate) => {
     params: { fromDate, toDate },
   });
 };
+
+export const getDashboardAnalyticsApi = async (fromDate, toDate, groupBy = "DAILY") => {
+  return axiosClient.get(`/admin/reports/dashboard-analytics`, {
+    params: { fromDate, toDate, groupBy },
+  });
+};

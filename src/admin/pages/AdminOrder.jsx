@@ -7,6 +7,19 @@ import {
   updateOrderStatus,
 } from "../services/orderService";
 import { updatePrescriptionStatus } from "../services/prescriptionService";
+import { getAllReturnRequestsApi } from "../../store/api/returnRequestApi";
+
+const FINAL_RETURN_REFUND_STATUSES = new Set([
+  "REFUNDED",
+  "REFUND",
+  "REFUND_COMPLETED",
+  "REFUND_FINALIZED",
+  "REFUND_RECEIVED_CONFIRMED",
+  "CUSTOMER_CONFIRMED_REFUND",
+  "CUSTOMER_REFUND_CONFIRMED",
+  "WAITING_ADMIN_REFUND_CONFIRM",
+  "COMPLETED",
+]);
 
 const statusColor = (status) => {
   const s = String(status || "").toLowerCase();
@@ -23,6 +36,9 @@ const statusColor = (status) => {
     case "delivered":
     case "completed":
       return "bg-green-50 text-green-700 border-green-200";
+    case "refund":
+    case "refunded":
+      return "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200";
     case "canceled":
     case "cancelled":
       return "bg-red-50 text-red-700 border-red-200";
@@ -40,7 +56,31 @@ function AdminOrders() {
   const fetchOrders = useCallback(async () => {
     try {
       const data = await getAllOrders();
-      setOrders(data || []);
+
+      const returnRes = await getAllReturnRequestsApi().catch(() => null);
+      const returnRequests = returnRes?.data?.data || [];
+
+      const refundOrderIds = new Set(
+        returnRequests
+          .filter(
+            (req) =>
+              req?.requestType === "RETURN" &&
+              FINAL_RETURN_REFUND_STATUSES.has(
+                String(req?.status || "").toUpperCase(),
+              ),
+          )
+          .map((req) => String(req?.orderId || ""))
+          .filter(Boolean),
+      );
+
+      const enriched = (data || []).map((order) => {
+        if (refundOrderIds.has(String(order.id))) {
+          return { ...order, status: "refund" };
+        }
+        return order;
+      });
+
+      setOrders(enriched);
     } catch (err) {
       console.error("Fetch orders error:", err);
     }
@@ -78,7 +118,9 @@ function AdminOrders() {
   const handleView = async (order) => {
     try {
       const detail = await getOrderById(order.id);
-      setSelectedOrder(detail);
+      setSelectedOrder(
+        order.status === "refund" ? { ...detail, status: "refund" } : detail,
+      );
     } catch (err) {
       console.error("Get order detail error:", err);
     }
@@ -105,9 +147,11 @@ function AdminOrders() {
         setSelectedOrder(refreshed);
       }
       fetchOrders();
+      return true;
     } catch (err) {
       console.error("Update prescription error:", err);
       alert(err?.response?.data?.message || "Update prescription failed");
+      return false;
     }
   };
 
@@ -150,6 +194,7 @@ function AdminOrders() {
               <option value="delivering">Delivering</option>
               <option value="delivered">Delivered</option>
               <option value="completed">Completed</option>
+              <option value="refund">Refund</option>
               <option value="canceled">Canceled</option>
               <option value="cancelled">Cancelled</option>
             </select>

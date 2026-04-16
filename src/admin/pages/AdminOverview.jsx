@@ -1,18 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  FiCalendar,
-  FiDollarSign,
-  FiShoppingBag,
-  FiRefreshCcw,
-  FiCreditCard,
-  FiTrendingUp,
-  FiPackage,
-  FiXCircle,
-} from "react-icons/fi";
 import Chart from "react-apexcharts";
 import { motion } from "framer-motion";
-import { getDashboardSummary } from "../services/dashboardService";
-import { getAllOrders } from "../services/orderService";
+import {
+  FiDollarSign,
+  FiUsers,
+  FiShoppingBag,
+  FiRefreshCcw,
+  FiCalendar,
+  FiTrendingUp,
+  FiPackage,
+  FiBarChart2,
+} from "react-icons/fi";
+import { getDashboardAnalytics } from "../services/dashboardService";
 
 const fadeUp = (delay = 0) => ({
   initial: { opacity: 0, y: 18 },
@@ -20,543 +19,894 @@ const fadeUp = (delay = 0) => ({
   transition: { duration: 0.45, delay },
 });
 
-const ORDER_DATE_REGEX = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/;
+const PROJECTED_REVENUE_KEYS = new Set([
+  "projectedrevenue",
+  "expectedrevenue",
+  "estimatedrevenue",
+  "forecastrevenue",
+  "projectrevenue",
+  "revenueprojected",
+  "dukiendoanhthu",
+  "doanhthudukien",
+]);
 
-const parseOrderDate = (order) => {
-  if (
-    order?.rawDate instanceof Date &&
-    !Number.isNaN(order.rawDate.getTime())
-  ) {
-    return order.rawDate;
+const REMAINING_REVENUE_KEYS = new Set([
+  "remainingrevenueafterrefund",
+  "remainingrevenue",
+  "netrevenue",
+  "sotienhienhuusaurefund",
+  "doanhthuconlai",
+]);
+
+function toFiniteNumber(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
   }
 
-  const fallbackDate = order?.orderDate || order?.createdAt || order?.date;
+  const normalized = String(value).replace(/,/g, "").trim();
+  if (!normalized) return null;
 
-  if (typeof fallbackDate === "string") {
-    const parts = fallbackDate.match(ORDER_DATE_REGEX);
-    if (parts) {
-      const [, day, month, year] = parts;
-      const parsedByParts = new Date(
-        Number(year),
-        Number(month) - 1,
-        Number(day),
-      );
-      if (!Number.isNaN(parsedByParts.getTime())) return parsedByParts;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeKey(key) {
+  return String(key || "")
+    .toLowerCase()
+    .replace(/[_\-\s]/g, "");
+}
+
+function isProjectedRevenueKey(key) {
+  const normalized = normalizeKey(key);
+  if (PROJECTED_REVENUE_KEYS.has(normalized)) return true;
+
+  const hasRevenue =
+    normalized.includes("revenue") || normalized.includes("doanhthu");
+  const hasProjectedHint =
+    normalized.includes("project") ||
+    normalized.includes("expect") ||
+    normalized.includes("estimate") ||
+    normalized.includes("forecast") ||
+    normalized.includes("dukien");
+
+  return hasRevenue && hasProjectedHint;
+}
+
+function isRemainingRevenueKey(key) {
+  const normalized = normalizeKey(key);
+  if (REMAINING_REVENUE_KEYS.has(normalized)) return true;
+
+  const hasRevenue =
+    normalized.includes("revenue") || normalized.includes("doanhthu");
+  const hasRemainingHint =
+    normalized.includes("remain") ||
+    normalized.includes("afterrefund") ||
+    normalized.includes("net") ||
+    normalized.includes("conlai") ||
+    normalized.includes("hienhuu");
+
+  return hasRevenue && hasRemainingHint;
+}
+
+function resolveProjectedRevenue(analytics) {
+  if (!analytics || typeof analytics !== "object") return null;
+
+  const visited = new Set();
+  const queue = [analytics];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") continue;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    for (const [key, value] of Object.entries(current)) {
+      if (isProjectedRevenueKey(key)) {
+        const parsed = toFiniteNumber(value);
+        if (parsed != null) return parsed;
+      }
+
+      if (value && typeof value === "object") {
+        queue.push(value);
+      }
     }
   }
 
-  const parsed = fallbackDate ? new Date(fallbackDate) : new Date();
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-};
+  return null;
+}
 
-const formatDayKey = (date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+function resolveRemainingRevenueAfterRefund(analytics) {
+  if (!analytics || typeof analytics !== "object") return null;
 
-const formatMonthKey = (date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const visited = new Set();
+  const queue = [analytics];
 
-const getOrderRevenue = (order) =>
-  Number(order?.total || order?.finalPrice || 0);
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") continue;
+    if (visited.has(current)) continue;
+    visited.add(current);
 
-const buildRevenueTrend = (orders, chartMode, filter) => {
-  const buildDailySeries = () => {
-    const buckets = new Map();
-    const days = filter === "7days" ? 7 : 30;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    for (const [key, value] of Object.entries(current)) {
+      if (isRemainingRevenueKey(key)) {
+        const parsed = toFiniteNumber(value);
+        if (parsed != null) return parsed;
+      }
 
-    for (let i = days - 1; i >= 0; i -= 1) {
-      const current = new Date(today);
-      current.setDate(today.getDate() - i);
-      buckets.set(formatDayKey(current), 0);
+      if (value && typeof value === "object") {
+        queue.push(value);
+      }
     }
+  }
 
-    (orders || []).forEach((order) => {
-      const key = formatDayKey(parseOrderDate(order));
-      if (!buckets.has(key)) return;
-      buckets.set(key, (buckets.get(key) || 0) + getOrderRevenue(order));
-    });
-
-    const categories = [];
-    const data = [];
-    for (const [key, value] of buckets.entries()) {
-      categories.push(
-        new Date(
-          Number(key.slice(0, 4)),
-          Number(key.slice(5, 7)) - 1,
-          Number(key.slice(8, 10)),
-        ).toLocaleDateString("vi-VN", {
-          day: "2-digit",
-          month: "2-digit",
-        }),
-      );
-      data.push(value);
-    }
-
-    return {
-      title: "Doanh thu theo ngày (tất cả đơn hàng)",
-      subtitle: "7 hoặc 30 mốc gần nhất tùy bộ lọc",
-      categories,
-      data,
-    };
-  };
-
-  const buildMonthlySeries = () => {
-    const buckets = new Map();
-    const months = 12;
-    const today = new Date();
-
-    for (let i = months - 1; i >= 0; i -= 1) {
-      const current = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      buckets.set(formatMonthKey(current), 0);
-    }
-
-    (orders || []).forEach((order) => {
-      const key = formatMonthKey(parseOrderDate(order));
-      if (!buckets.has(key)) return;
-      buckets.set(key, (buckets.get(key) || 0) + getOrderRevenue(order));
-    });
-
-    const categories = [];
-    const data = [];
-    for (const [key, value] of buckets.entries()) {
-      const [year, month] = key.split("-");
-      categories.push(
-        new Date(Number(year), Number(month) - 1, 1).toLocaleDateString(
-          "vi-VN",
-          {
-            month: "short",
-            year: "numeric",
-          },
-        ),
-      );
-      data.push(value);
-    }
-
-    return {
-      title: "Doanh thu theo tháng (tất cả đơn hàng)",
-      subtitle: "12 tháng gần nhất",
-      categories,
-      data,
-    };
-  };
-
-  return chartMode === "monthly" ? buildMonthlySeries() : buildDailySeries();
-};
+  return null;
+}
 
 function AdminOverview() {
-  const [summary, setSummary] = useState(null);
-  const [orders, setOrders] = useState([]);
-  const [filter, setFilter] = useState("7days");
-  const [chartMode, setChartMode] = useState("daily");
+  const [analytics, setAnalytics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [groupBy, setGroupBy] = useState("DAILY");
 
-  const dateRange = useMemo(() => {
-    const now = new Date();
-    const toDate = now.toISOString().split("T")[0];
-    const from = new Date();
-    from.setDate(now.getDate() - (filter === "7days" ? 6 : 29));
-    const fromDate = from.toISOString().split("T")[0];
-    return { fromDate, toDate };
-  }, [filter]);
+  const [fromDate, setFromDate] = useState(() => {
+    const today = new Date();
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    return toInputDate(firstDay);
+  });
 
-  const derivedHeldMoney = useMemo(() => {
-    return (orders || []).reduce((sum, order) => {
-      const orderStatus = String(order?.status || "").toLowerCase();
-      const paymentStatus = String(order?.paymentStatus || "").toUpperCase();
-
-      const isInProgress = [
-        "pending",
-        "processing",
-        "shipped",
-        "shipping",
-        "delivering",
-      ].includes(orderStatus);
-      const isUnpaid = !["PAID", "PAID_FULL", "REFUNDED"].includes(
-        paymentStatus,
-      );
-
-      if (!isInProgress || !isUnpaid) return sum;
-      return sum + Number(order?.total || 0);
-    }, 0);
-  }, [orders]);
-
-  const currentHeldMoney = useMemo(() => {
-    const apiValue = Number(summary?.currentHeldMoney);
-
-    if (Number.isFinite(apiValue) && apiValue > 0) return apiValue;
-    if (derivedHeldMoney > 0) return derivedHeldMoney;
-    if (Number.isFinite(apiValue)) return apiValue;
-    return 0;
-  }, [summary, derivedHeldMoney]);
+  const [toDate, setToDate] = useState(() => {
+    return toInputDate(new Date());
+  });
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [summaryData, ordersData] = await Promise.all([
-          getDashboardSummary(dateRange.fromDate, dateRange.toDate),
-          getAllOrders(),
-        ]);
-        setSummary(summaryData);
-        setOrders(ordersData || []);
-      } catch (err) {
-        console.error("Error fetching dashboard data:", err);
-      }
-    };
-
-    fetchData();
-    const interval = setInterval(fetchData, 20000);
+    fetchDashboard();
+    const interval = setInterval(fetchDashboard, 30000);
     return () => clearInterval(interval);
-  }, [dateRange]);
+  }, [fromDate, toDate, groupBy]);
 
-  const statCards = [
-    {
-      label: "Gross Revenue",
-      value: `${Number(summary?.grossRevenue || 0).toLocaleString("vi-VN")} ₫`,
-      icon: FiDollarSign,
-      bg: "bg-emerald-100",
-      text: "text-emerald-600",
-    },
-    {
-      label: "Refunded / Deducted",
-      value: `${Number(summary?.refundedAmount || 0).toLocaleString("vi-VN")} ₫`,
-      icon: FiRefreshCcw,
-      bg: "bg-amber-100",
-      text: "text-amber-600",
-    },
-    {
-      label: "Net Revenue",
-      value: `${Number(summary?.netRevenue || 0).toLocaleString("vi-VN")} ₫`,
-      icon: FiTrendingUp,
-      bg: "bg-blue-100",
-      text: "text-blue-600",
-    },
-    {
-      label: "Current Held Money",
-      value: `${Number(currentHeldMoney || 0).toLocaleString("vi-VN")} ₫`,
-      icon: FiCreditCard,
-      bg: "bg-amber-100",
-      text: "text-amber-600",
-    },
-    {
-      label: "Collected Cash",
-      value: `${Number(summary?.collectedCash || 0).toLocaleString("vi-VN")} ₫`,
-      icon: FiCreditCard,
-      bg: "bg-violet-100",
-      text: "text-violet-600",
-    },
-    {
-      label: "Total Orders",
-      value: Number(summary?.totalOrders || 0).toLocaleString("vi-VN"),
-      icon: FiShoppingBag,
-      bg: "bg-slate-100",
-      text: "text-slate-600",
-    },
-    {
-      label: "Shipping Orders",
-      value: Number(summary?.shippingOrders || 0).toLocaleString("vi-VN"),
-      icon: FiPackage,
-      bg: "bg-cyan-100",
-      text: "text-cyan-600",
-    },
-    {
-      label: "Cancelled Orders",
-      value: Number(summary?.cancelledOrders || 0).toLocaleString("vi-VN"),
-      icon: FiXCircle,
-      bg: "bg-slate-100",
-      text: "text-slate-600",
-    },
-  ];
+  const fetchDashboard = async () => {
+    try {
+      setLoading(true);
+      const data = await getDashboardAnalytics(fromDate, toDate, groupBy);
+      setAnalytics(data);
+    } catch (error) {
+      console.error("Fetch dashboard analytics error:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const recentOrders = useMemo(() => {
-    return [...orders].slice(0, 5);
-  }, [orders]);
+  const summaryCards = useMemo(() => {
+    return [
+      {
+        title: "Tổng doanh thu",
+        value: formatCompactCurrency(analytics?.totalRevenue),
+        change: analytics?.revenueChangePercent ?? 0,
+        icon: FiDollarSign,
+        iconBg: "bg-emerald-100",
+        iconText: "text-emerald-600",
+      },
+      {
+        title: "Tổng khách hàng",
+        value: formatCompactNumber(analytics?.totalCustomers),
+        change: analytics?.customerChangePercent ?? 0,
+        icon: FiUsers,
+        iconBg: "bg-blue-100",
+        iconText: "text-blue-600",
+      },
+      {
+        title: "Số kính đã bán",
+        value: formatCompactNumber(analytics?.soldItems),
+        change: analytics?.soldItemsChangePercent ?? 0,
+        icon: FiShoppingBag,
+        iconBg: "bg-violet-100",
+        iconText: "text-violet-600",
+      },
+      {
+        title: "Số tiền đã hoàn trả",
+        value: formatCompactCurrency(analytics?.refundedAmount),
+        change: analytics?.refundedChangePercent ?? 0,
+        icon: FiRefreshCcw,
+        iconBg: "bg-amber-100",
+        iconText: "text-amber-600",
+      },
+    ];
+  }, [analytics]);
 
-  const revenueTrend = useMemo(
-    () => buildRevenueTrend(orders, chartMode, filter),
-    [orders, chartMode, filter],
-  );
+  const quickStats = useMemo(() => {
+    const projectedRevenueValue = resolveProjectedRevenue(analytics);
+    const remainingRevenueAfterRefundValue =
+      resolveRemainingRevenueAfterRefund(analytics);
 
-  const revenueChartOptions = useMemo(
-    () => ({
+    return [
+      {
+        label: "Doanh thu dự kiến",
+        value: formatCurrency(projectedRevenueValue),
+      },
+      {
+        label: "Tiền hiện hữu sau refund",
+        value: formatCurrency(remainingRevenueAfterRefundValue),
+      },
+      {
+        label: "Tổng đơn hàng",
+        value: formatCompactNumber(analytics?.totalOrders),
+      },
+      {
+        label: "Đơn hoàn tất",
+        value: formatCompactNumber(analytics?.completedOrders),
+      },
+      {
+        label: "Khách mới tạo tài khoản",
+        value: formatCompactNumber(analytics?.newCustomers),
+      },
+      {
+        label: "Đơn chờ xử lý",
+        value: formatCompactNumber(analytics?.pendingOrders),
+      },
+      {
+        label: "Đơn đang giao",
+        value: formatCompactNumber(analytics?.shippingOrders),
+      },
+    ];
+  }, [analytics]);
+
+  const timeline = analytics?.timeline || [];
+  const bestByQuantity = analytics?.bestSellingProductsByQuantity || [];
+  const bestByRevenue = analytics?.bestSellingProductsByRevenue || [];
+  const orderStatusReport = analytics?.orderStatusReport || [];
+
+  const revenueChartOptions = useMemo(() => {
+    return {
       chart: {
         type: "bar",
         toolbar: { show: false },
         zoom: { enabled: false },
         fontFamily: "Inter, system-ui, sans-serif",
-        sparkline: { enabled: false },
       },
-      colors: ["#2563eb"],
+      colors: ["#3b82f6"],
       dataLabels: { enabled: false },
-      fill: {
-        type: "gradient",
-        gradient: {
-          shadeIntensity: 0.25,
-          opacityFrom: 0.92,
-          opacityTo: 0.82,
-          stops: [0, 90, 100],
-        },
-      },
+      stroke: { show: false },
       plotOptions: {
         bar: {
-          horizontal: false,
-          borderRadius: 10,
-          columnWidth: "48%",
-          distributed: false,
+          borderRadius: 8,
+          columnWidth: "54%",
+        },
+      },
+      xaxis: {
+        categories: timeline.map((item) => item.label),
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        labels: {
+          rotate: -20,
+          style: {
+            colors: "#94a3b8",
+            fontSize: "11px",
+          },
+        },
+      },
+      yaxis: {
+        labels: {
+          formatter: (value) => formatAxisCurrency(value),
+          style: {
+            colors: "#94a3b8",
+            fontSize: "11px",
+          },
         },
       },
       grid: {
         borderColor: "#e5e7eb",
         strokeDashArray: 4,
-        padding: {
-          top: 0,
-          right: 8,
-          bottom: 0,
-          left: 8,
+      },
+      tooltip: {
+        y: {
+          formatter: (value) => formatCurrency(value),
+        },
+      },
+      legend: { show: false },
+    };
+  }, [timeline]);
+
+  const revenueChartSeries = useMemo(() => {
+    return [
+      {
+        name: "Doanh thu",
+        data: timeline.map((item) => Number(item.revenue || 0)),
+      },
+    ];
+  }, [timeline]);
+
+  const detailLineChartOptions = useMemo(() => {
+    return {
+      chart: {
+        type: "line",
+        toolbar: { show: false },
+        zoom: { enabled: false },
+        fontFamily: "Inter, system-ui, sans-serif",
+      },
+      colors: ["#10b981", "#3b82f6", "#8b5cf6", "#f59e0b"],
+      stroke: {
+        width: [3, 3, 3, 3],
+        curve: "smooth",
+      },
+      dataLabels: { enabled: false },
+      markers: {
+        size: 4,
+        hover: {
+          size: 6,
         },
       },
       xaxis: {
-        categories: revenueTrend.categories,
+        categories: timeline.map((item) => item.label),
         axisBorder: { show: false },
         axisTicks: { show: false },
         labels: {
+          rotate: -20,
           style: {
-            colors: "#64748b",
-            fontSize: "12px",
-            fontWeight: 600,
+            colors: "#94a3b8",
+            fontSize: "11px",
           },
-          rotate: -30,
-          trim: false,
-        },
-      },
-      states: {
-        hover: {
-          filter: { type: "lighten", value: 0.08 },
-        },
-        active: {
-          filter: { type: "none" },
         },
       },
       yaxis: {
-        min: 0,
         labels: {
-          formatter: (value) =>
-            `${Number(value || 0).toLocaleString("vi-VN")} ₫`,
+          formatter: (value) => formatAxisCurrency(value),
           style: {
-            colors: "#64748b",
-            fontSize: "12px",
-            fontWeight: 600,
+            colors: "#94a3b8",
+            fontSize: "11px",
           },
         },
       },
-      tooltip: {
-        shared: false,
-        intersect: true,
-        custom: ({ series, seriesIndex, dataPointIndex, w }) => {
-          const value = series[seriesIndex][dataPointIndex] || 0;
-          const label = w.globals.labels[dataPointIndex] || "";
-          return `
-            <div style="padding:12px 14px;background:#0f172a;color:#fff;border-radius:14px;box-shadow:0 18px 40px rgba(15,23,42,.18);min-width:140px">
-              <div style="font-size:12px;opacity:.72;margin-bottom:4px">${label}</div>
-              <div style="font-size:18px;font-weight:700">${Number(value).toLocaleString("vi-VN")} ₫</div>
-            </div>
-          `;
-        },
+      grid: {
+        borderColor: "#e5e7eb",
+        strokeDashArray: 4,
       },
-      stroke: {
-        show: false,
+      tooltip: {
+        shared: true,
+        intersect: false,
       },
       legend: {
-        show: false,
+        position: "bottom",
+        horizontalAlign: "left",
       },
-    }),
-    [revenueTrend.categories],
-  );
+    };
+  }, [timeline]);
 
-  const revenueSeries = useMemo(
-    () => [
+  const detailLineChartSeries = useMemo(() => {
+    return [
       {
-        name: "Revenue",
-        data: revenueTrend.data,
+        name: "Doanh thu",
+        data: timeline.map((item) => Number(item.revenue || 0)),
       },
-    ],
-    [revenueTrend.data],
-  );
+      {
+        name: "Khách hàng",
+        data: timeline.map((item) => Number(item.customerRegistrations || 0)),
+      },
+      {
+        name: "Kính đã bán",
+        data: timeline.map((item) => Number(item.soldItems || 0)),
+      },
+      {
+        name: "Hoàn trả",
+        data: timeline.map((item) => Number(item.refundedAmount || 0)),
+      },
+    ];
+  }, [timeline]);
 
-  const totalTrendRevenue = useMemo(
-    () => revenueTrend.data.reduce((sum, value) => sum + Number(value || 0), 0),
-    [revenueTrend.data],
-  );
+  const bestByQuantityOptions = useMemo(() => {
+    return buildHorizontalBarOptions(
+      bestByQuantity.map((item) => item.productName),
+      "Số lượng",
+    );
+  }, [bestByQuantity]);
 
-  const todayStrDisplay = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const bestByQuantitySeries = useMemo(() => {
+    return [
+      {
+        name: "Số lượng",
+        data: bestByQuantity.map((item) => Number(item.quantitySold || 0)),
+      },
+    ];
+  }, [bestByQuantity]);
+
+  const bestByRevenueOptions = useMemo(() => {
+    return buildHorizontalBarOptions(
+      bestByRevenue.map((item) => item.productName),
+      "Doanh thu",
+      true,
+    );
+  }, [bestByRevenue]);
+
+  const bestByRevenueSeries = useMemo(() => {
+    return [
+      {
+        name: "Doanh thu",
+        data: bestByRevenue.map((item) => Number(item.revenue || 0)),
+      },
+    ];
+  }, [bestByRevenue]);
+
+  const signupChartOptions = useMemo(() => {
+    return {
+      chart: {
+        type: "bar",
+        toolbar: { show: false },
+        fontFamily: "Inter, system-ui, sans-serif",
+      },
+      colors: ["#10b981"],
+      dataLabels: { enabled: false },
+      plotOptions: {
+        bar: {
+          borderRadius: 6,
+          columnWidth: "58%",
+        },
+      },
+      xaxis: {
+        categories: timeline.map((item) => item.label),
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+        labels: {
+          rotate: -20,
+          style: {
+            colors: "#94a3b8",
+            fontSize: "11px",
+          },
+        },
+      },
+      yaxis: {
+        labels: {
+          style: {
+            colors: "#94a3b8",
+            fontSize: "11px",
+          },
+        },
+      },
+      grid: {
+        borderColor: "#e5e7eb",
+        strokeDashArray: 4,
+      },
+      legend: { show: false },
+      tooltip: {
+        y: {
+          formatter: (value) =>
+            `${Number(value || 0).toLocaleString("vi-VN")} khách`,
+        },
+      },
+    };
+  }, [timeline]);
+
+  const signupChartSeries = useMemo(() => {
+    return [
+      {
+        name: "Khách hàng tạo tài khoản",
+        data: timeline.map((item) => Number(item.customerRegistrations || 0)),
+      },
+    ];
+  }, [timeline]);
+
+  const orderStatusText = useMemo(() => {
+    return orderStatusReport
+      .map((item) => `${item.status}: ${item.count}`)
+      .join(" · ");
+  }, [orderStatusReport]);
 
   return (
-    <div className="px-8 pt-8 pb-16 bg-gradient-to-br from-gray-50 to-gray-200 min-h-screen">
-      <motion.div
-        {...fadeUp(0)}
-        className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4"
-      >
-        <div>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
-            System Overview
-          </h1>
-          <p className="text-sm text-gray-500 mt-1 font-medium">
-            Financial dashboard and order performance
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium"
-          >
-            <option value="7days">Last 7 days</option>
-            <option value="30days">Last 30 days</option>
-          </select>
-
-          <div className="flex items-center gap-3 text-sm font-semibold text-gray-600 bg-white border border-gray-100 shadow-xl rounded-2xl px-5 py-3">
-            <FiCalendar className="text-blue-500" size={16} />
-            <span>{todayStrDisplay}</span>
-          </div>
-        </div>
+    <div className="px-8 pt-6 pb-12 bg-gray-50 min-h-screen">
+      <motion.div {...fadeUp(0)} className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Báo cáo doanh thu, đơn hàng, khách hàng, sản phẩm bán chạy và hoàn
+          tiền
+        </p>
       </motion.div>
 
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-        {statCards.map((card, i) => {
+      <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+        {summaryCards.map((card, index) => {
           const Icon = card.icon;
+          const positive = Number(card.change || 0) >= 0;
+
           return (
             <motion.div
-              key={card.label}
-              {...fadeUp(0.05 * i)}
-              className="bg-white rounded-3xl p-7 border border-gray-50 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
+              key={card.title}
+              {...fadeUp(index * 0.05)}
+              className="bg-white rounded-2xl border border-gray-200 shadow-sm px-5 py-4"
             >
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                  {card.label}
-                </p>
-                <div
-                  className={`w-12 h-12 flex items-center justify-center rounded-2xl ${card.bg} ${card.text}`}
-                >
-                  <Icon size={20} />
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm text-gray-500">{card.title}</div>
+                  <div className="text-3xl font-bold text-gray-900 mt-1">
+                    {card.value}
+                  </div>
+                  <div
+                    className={`text-sm mt-2 ${positive ? "text-emerald-600" : "text-red-500"}`}
+                  >
+                    {positive ? "↗" : "↘"}{" "}
+                    {Math.abs(Number(card.change || 0)).toFixed(1)}% so với kỳ
+                    trước
+                  </div>
                 </div>
-              </div>
-              <div className="mt-6">
-                <p className="text-2xl font-black text-gray-800 tracking-tight">
-                  {card.value}
-                </p>
+
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center ${card.iconBg}`}
+                >
+                  <Icon className={card.iconText} size={20} />
+                </div>
               </div>
             </motion.div>
           );
         })}
       </section>
 
-      <section className="mt-10 bg-white rounded-[2rem] border border-gray-100 p-8 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
-          <div>
-            <h2 className="text-xl font-black text-gray-800">Revenue Trend</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              {revenueTrend.title} · {revenueTrend.subtitle} · Tổng:{" "}
-              {Number(totalTrendRevenue || 0).toLocaleString("vi-VN")} ₫
-            </p>
+      <motion.section
+        {...fadeUp(0.1)}
+        className="mt-6 bg-white rounded-2xl border border-gray-200 shadow-sm p-5"
+      >
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+          <div className="flex flex-wrap items-end gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-2">
+                Từ ngày
+              </label>
+              <div className="relative">
+                <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="pl-10 pr-4 py-3 border border-gray-200 rounded-xl bg-white text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-2">
+                Đến ngày
+              </label>
+              <div className="relative">
+                <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="pl-10 pr-4 py-3 border border-gray-200 rounded-xl bg-white text-sm"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={fetchDashboard}
+              className="px-5 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white font-semibold text-sm"
+            >
+              Tải lại
+            </button>
           </div>
 
-          <div className="inline-flex rounded-2xl bg-gray-100 p-1 self-start">
+          <div className="inline-flex rounded-xl bg-gray-100 p-1 self-start">
             <button
               type="button"
-              onClick={() => setChartMode("daily")}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                chartMode === "daily"
+              onClick={() => setGroupBy("DAILY")}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                groupBy === "DAILY"
                   ? "bg-white text-blue-600 shadow-sm"
-                  : "text-gray-500 hover:text-gray-800"
+                  : "text-gray-500"
               }`}
             >
-              Theo ngày
+              Theo tuần
             </button>
             <button
               type="button"
-              onClick={() => setChartMode("monthly")}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                chartMode === "monthly"
+              onClick={() => setGroupBy("MONTHLY")}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                groupBy === "MONTHLY"
                   ? "bg-white text-blue-600 shadow-sm"
-                  : "text-gray-500 hover:text-gray-800"
+                  : "text-gray-500"
               }`}
             >
               Theo tháng
             </button>
           </div>
         </div>
+      </motion.section>
 
-        <div className="rounded-[1.75rem] border border-slate-100 bg-gradient-to-br from-slate-50 via-white to-blue-50/40 p-4 shadow-inner">
-          {revenueSeries[0].data.some((value) => Number(value || 0) > 0) ? (
+      <motion.section
+        {...fadeUp(0.15)}
+        className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-4"
+      >
+        {quickStats.map((item) => (
+          <div
+            key={item.label}
+            className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm"
+          >
+            <div className="text-xs uppercase tracking-wide text-gray-400 font-semibold">
+              {item.label}
+            </div>
+            <div className="text-lg font-bold text-gray-900 mt-2">
+              {item.value}
+            </div>
+          </div>
+        ))}
+      </motion.section>
+
+      <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <motion.div
+          {...fadeUp(0.2)}
+          className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                Doanh thu theo thời gian
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Theo dõi doanh thu trong khoảng thời gian đã chọn
+              </p>
+            </div>
+            <FiTrendingUp className="text-blue-500" size={20} />
+          </div>
+
+          {loading ? (
+            <div className="h-[320px] flex items-center justify-center text-gray-400">
+              Loading...
+            </div>
+          ) : (
             <Chart
               options={revenueChartOptions}
-              series={revenueSeries}
+              series={revenueChartSeries}
               type="bar"
-              height={360}
+              height={320}
             />
-          ) : (
-            <div className="h-[360px] flex items-center justify-center text-gray-400 text-sm">
-              No revenue data for the selected range
-            </div>
           )}
-        </div>
-      </section>
+        </motion.div>
 
-      <section className="mt-10 bg-white rounded-[2rem] border border-gray-100 p-8 shadow-sm">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-black text-gray-800">Recent Orders</h2>
+        <motion.div
+          {...fadeUp(0.25)}
+          className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                Thống kê chi tiết
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Doanh thu · Khách hàng · Kính đã bán · Hoàn trả
+              </p>
+            </div>
+            <FiBarChart2 className="text-emerald-500" size={20} />
+          </div>
+
+          {loading ? (
+            <div className="h-[320px] flex items-center justify-center text-gray-400">
+              Loading...
+            </div>
+          ) : (
+            <Chart
+              options={detailLineChartOptions}
+              series={detailLineChartSeries}
+              type="line"
+              height={320}
+            />
+          )}
+        </motion.div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <motion.div
+          {...fadeUp(0.3)}
+          className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                Sản phẩm bán chạy - Số lượng
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Báo cáo sản phẩm bán chạy nhất theo số lượng
+              </p>
+            </div>
+            <FiPackage className="text-violet-500" size={20} />
+          </div>
+
+          {loading ? (
+            <div className="h-[320px] flex items-center justify-center text-gray-400">
+              Loading...
+            </div>
+          ) : (
+            <Chart
+              options={bestByQuantityOptions}
+              series={bestByQuantitySeries}
+              type="bar"
+              height={320}
+            />
+          )}
+        </motion.div>
+
+        <motion.div
+          {...fadeUp(0.35)}
+          className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                Sản phẩm bán chạy - Doanh thu
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Báo cáo doanh thu của từng sản phẩm
+              </p>
+            </div>
+            <FiDollarSign className="text-blue-500" size={20} />
+          </div>
+
+          {loading ? (
+            <div className="h-[320px] flex items-center justify-center text-gray-400">
+              Loading...
+            </div>
+          ) : (
+            <Chart
+              options={bestByRevenueOptions}
+              series={bestByRevenueSeries}
+              type="bar"
+              height={320}
+            />
+          )}
+        </motion.div>
+      </div>
+
+      <motion.div
+        {...fadeUp(0.4)}
+        className="mt-5 bg-white rounded-2xl border border-gray-200 shadow-sm p-5"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">
+              Số lượng khách hàng tạo tài khoản
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Theo dõi lượng khách hàng mới theo thời gian
+            </p>
+          </div>
+
           <div className="text-sm text-gray-500">
-            {dateRange.fromDate} → {dateRange.toDate}
+            {orderStatusText || "Không có dữ liệu đơn hàng"}
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px] text-sm">
-            <thead>
-              <tr className="text-left text-gray-400 border-b">
-                <th className="py-3">Order</th>
-                <th className="py-3">Customer</th>
-                <th className="py-3">Status</th>
-                <th className="py-3 text-right">Total</th>
-                <th className="py-3">Payment</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentOrders.map((order) => (
-                <tr key={order.orderId} className="border-b last:border-0">
-                  <td className="py-4 font-semibold text-gray-700">
-                    {order.code || order.orderCode}
-                  </td>
-                  <td className="py-4">
-                    {order.customer || order.fullName || "-"}
-                  </td>
-                  <td className="py-4">{order.status || "-"}</td>
-                  <td className="py-4 text-right font-bold">
-                    {Number(
-                      order.total || order.finalPrice || 0,
-                    ).toLocaleString("vi-VN")}{" "}
-                    ₫
-                  </td>
-                  <td className="py-4">{order.paymentStatus || "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {!recentOrders.length && (
-            <div className="py-12 text-center text-gray-400">
-              No orders found
-            </div>
-          )}
-        </div>
-      </section>
+        {loading ? (
+          <div className="h-[320px] flex items-center justify-center text-gray-400">
+            Loading...
+          </div>
+        ) : (
+          <Chart
+            options={signupChartOptions}
+            series={signupChartSeries}
+            type="bar"
+            height={320}
+          />
+        )}
+      </motion.div>
     </div>
   );
+}
+
+function buildHorizontalBarOptions(categories, seriesName, isCurrency = false) {
+  return {
+    chart: {
+      type: "bar",
+      toolbar: { show: false },
+      fontFamily: "Inter, system-ui, sans-serif",
+    },
+    colors: ["#8b5cf6"],
+    plotOptions: {
+      bar: {
+        horizontal: true,
+        borderRadius: 8,
+        barHeight: "56%",
+      },
+    },
+    dataLabels: { enabled: false },
+    xaxis: {
+      categories,
+      labels: {
+        formatter: (value) =>
+          isCurrency
+            ? formatAxisCurrency(value)
+            : Number(value || 0).toLocaleString("vi-VN"),
+        style: {
+          colors: "#94a3b8",
+          fontSize: "11px",
+        },
+      },
+    },
+    yaxis: {
+      labels: {
+        style: {
+          colors: "#64748b",
+          fontSize: "12px",
+          fontWeight: 600,
+        },
+      },
+    },
+    grid: {
+      borderColor: "#e5e7eb",
+      strokeDashArray: 4,
+    },
+    tooltip: {
+      y: {
+        formatter: (value) =>
+          isCurrency
+            ? formatCurrency(value)
+            : `${Number(value || 0).toLocaleString("vi-VN")}`,
+      },
+    },
+    legend: { show: false },
+  };
+}
+
+function formatCurrency(value) {
+  if (value == null || value === "") return "-";
+
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+
+  return `${number.toLocaleString("vi-VN")} VND`;
+}
+
+function formatCompactCurrency(value) {
+  const number = Number(value || 0);
+
+  if (number >= 1_000_000_000) {
+    return `${(number / 1_000_000_000).toFixed(1)}B VND`;
+  }
+
+  if (number >= 1_000_000) {
+    return `${(number / 1_000_000).toFixed(1)}M VND`;
+  }
+
+  if (number >= 1_000) {
+    return `${(number / 1_000).toFixed(1)}K VND`;
+  }
+
+  return `${number.toLocaleString("vi-VN")} VND`;
+}
+
+function formatCompactNumber(value) {
+  const number = Number(value || 0);
+
+  if (number >= 1_000_000_000) {
+    return `${(number / 1_000_000_000).toFixed(1)}B`;
+  }
+
+  if (number >= 1_000_000) {
+    return `${(number / 1_000_000).toFixed(1)}M`;
+  }
+
+  if (number >= 1_000) {
+    return `${(number / 1_000).toFixed(1)}K`;
+  }
+
+  return `${number.toLocaleString("vi-VN")}`;
+}
+
+function formatAxisCurrency(value) {
+  const number = Number(value || 0);
+
+  if (number >= 1_000_000_000) {
+    return `${(number / 1_000_000_000).toFixed(0)}B`;
+  }
+
+  if (number >= 1_000_000) {
+    return `${(number / 1_000_000).toFixed(0)}M`;
+  }
+
+  if (number >= 1_000) {
+    return `${(number / 1_000).toFixed(0)}K`;
+  }
+
+  return `${number.toLocaleString("vi-VN")}`;
+}
+
+function toInputDate(date) {
+  const local = new Date(date);
+  local.setMinutes(local.getMinutes() - local.getTimezoneOffset());
+  return local.toISOString().slice(0, 10);
 }
 
 export default AdminOverview;

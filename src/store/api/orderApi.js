@@ -33,3 +33,7 @@ export const updatePaymentStatusApi = (orderId, status) => {
 export const updatePaymentMethodApi = (orderId, method) => {
   return axiosClient.patch(`/orders/${orderId}/paymentMethod?method=${method}`);
 };
+
+export const updateOrderStatusApi = (orderId, status) => {
+  return axiosClient.patch(`/orders/${orderId}/status?status=${status}`);
+};

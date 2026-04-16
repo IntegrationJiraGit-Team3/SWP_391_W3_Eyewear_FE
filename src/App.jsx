@@ -2,7 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import ScrollToTop from "./shared/common/ScrollToTop.jsx";
 import HomePage from "./store/pages/HomePage.jsx";
 import LoginPage from "./store/pages/LoginPage.jsx";
-import RegisterPage from "./store/pages/RegisterPage.jsx"; // <--- 1. Import trang mới
+import RegisterPage from "./store/pages/RegisterPage.jsx";
 import ProductDetailPage from "./store/pages/ProductDetailPage.jsx";
 import ShopPage from "./store/pages/ShopPage.jsx";
 import AdminOverview from "./admin/pages/AdminOverview.jsx";
@@ -51,8 +51,13 @@ function App() {
           <Route path="/order-feedback" element={<OrderFeedbackPage />} />
           <Route path="/return-request" element={<ReturnFormPage />} />
           <Route path="/my-orders" element={<OrderHistoryPage />} />
+          <Route
+            path="/my-return-requests/:requestId"
+            element={<ReturnRequestDetailPage />}
+          />
           <Route path="/payment-result" element={<PaymentResultPage />} />
         </Route>
+
         <Route
           element={
             <AdminRoute>

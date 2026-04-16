@@ -1,19 +1,17 @@
 import axiosClient from "./axiosClient";
 
-// export const createReturnRequestApi = (data) => {
-//     return axiosClient.post("/return-requests", data);
-// };
-// ADMIN / STAFF lấy danh sách yêu cầu đổi/trả
 export const getAllReturnRequestsApi = () => {
-    return axiosClient.get("/return-requests");
-};
-export const getReturnRequestByIdApi = (requestId) => {
-    return axiosClient.get(`/return-requests/${requestId}`);
+    return axiosClient.get("/return-requests").catch((error) => {
+        const status = error?.response?.status;
+        if (status === 404 || status === 403 || status === 405) {
+            return axiosClient.get("/admin/return-requests");
+        }
+        throw error;
+    });
 };
 
-// ADMIN / STAFF cập nhật status
-export const updateReturnRequestStatusApi = (id, payload) => {
-    return axiosClient.patch(`/return-requests/${id}/status`, payload);
+export const getReturnRequestByIdApi = (requestId) => {
+    return axiosClient.get(`/return-requests/${requestId}`);
 };
 
 export const createReturnRequestApi = (payload) => {
@@ -44,11 +42,36 @@ export const markRefundInvalidApi = (requestId, payload) => {
     return axiosClient.put(`/return-requests/${requestId}/refund-invalid`, payload);
 };
 
-export const markRefundedApi = (requestId) => {
-    return axiosClient.put(`/return-requests/${requestId}/refunded`);
+export const markRefundedApi = (requestId, payload) => {
+    return axiosClient.put(`/return-requests/${requestId}/refunded`, payload);
+};
+
+export const confirmRefundReceivedApi = (requestId) => {
+    return axiosClient.put(`/return-requests/${requestId}/confirm-refund-received`);
 };
 
 export const completeExchangeRequestApi = (requestId) => {
+    return axiosClient.put(`/return-requests/${requestId}/complete`);
+};
+
+const isEndpointNotFound = (error) => {
+    const status = error?.response?.status;
+    return status === 404 || status === 405;
+};
+
+export const adminConfirmRefundFinalApi = async (requestId) => {
+    try {
+        return await axiosClient.put(`/return-requests/${requestId}/confirm-refund-final`);
+    } catch (error) {
+        if (!isEndpointNotFound(error)) throw error;
+    }
+
+    try {
+        return await axiosClient.put(`/return-requests/${requestId}/refund-complete`);
+    } catch (error) {
+        if (!isEndpointNotFound(error)) throw error;
+    }
+
     return axiosClient.put(`/return-requests/${requestId}/complete`);
 };
 
