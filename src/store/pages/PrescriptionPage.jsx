@@ -247,19 +247,7 @@ export default function PrescriptionPage() {
       window.dispatchEvent(new Event("storage"));
 
       if (localStorage.getItem("token")) {
-        if (isOutOfStock) {
-          try {
-            const preorders =
-              JSON.parse(localStorage.getItem("frontend_preorders")) || {};
-            preorders[variant.variantId] = true;
-            localStorage.setItem(
-              "frontend_preorders",
-              JSON.stringify(preorders),
-            );
-          } catch (e) {
-            // ignore
-          }
-        }
+        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
         const payload = {
           productId,
           variantId,
@@ -384,19 +372,7 @@ export default function PrescriptionPage() {
         }
 
         const isOutOfStock = variant?.stockQuantity === 0;
-        if (isOutOfStock) {
-          try {
-            const preorders =
-              JSON.parse(localStorage.getItem("frontend_preorders")) || {};
-            preorders[variant.variantId] = true;
-            localStorage.setItem(
-              "frontend_preorders",
-              JSON.stringify(preorders),
-            );
-          } catch (e) {
-            // ignore
-          }
-        }
+        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
 
         const framePayload = {
           productId: productId,
