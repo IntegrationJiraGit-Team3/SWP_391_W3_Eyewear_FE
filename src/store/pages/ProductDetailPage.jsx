@@ -340,19 +340,7 @@ function ProductDetailPage() {
 
       if (apiRes) {
         // Save preorder state locally to bypass backend strict API validation rejection (500)
-        if (isOutOfStock) {
-          try {
-            const preorders =
-              JSON.parse(localStorage.getItem("frontend_preorders")) || {};
-            preorders[selectedVariant.variantId] = true;
-            localStorage.setItem(
-              "frontend_preorders",
-              JSON.stringify(preorders),
-            );
-          } catch {
-            // ignore
-          }
-        }
+        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
         showToast(`Added ${quantity} items to cart!`);
       } else {
         showToast("Error adding to cart");

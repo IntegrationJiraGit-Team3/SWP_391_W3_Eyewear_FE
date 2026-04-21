@@ -1,5 +1,9 @@
-import { getAllOrdersApi } from "../api/orderApi";
-import { getStockVariantByIdApi, updateStockApi } from "../api/preOrderApi";
+import {
+  approvePreorderApi,
+  getAllOrdersApi,
+} from "../api/orderApi";
+import { getStockVariantByIdApi } from "../api/preOrderApi";
+
 export const getPreorderItemsService = async () => {
   try {
     const res = await getAllOrdersApi();
@@ -11,7 +15,6 @@ export const getPreorderItemsService = async () => {
         .map((item) => ({
           ...item,
 
-          // 🔥 attach FULL order info
           orderId: order.orderId,
           orderCode: order.orderCode,
           orderStatus: order.status,
@@ -28,6 +31,8 @@ export const getPreorderItemsService = async () => {
 
           totalPrice: order.finalPrice || order.totalPrice,
           paymentStatus: order.paymentStatus,
+          remainingPaymentStatus: order.remainingPaymentStatus,
+          depositType: order.depositType,
         })),
     );
 
@@ -43,8 +48,7 @@ export const getStockVariantById = async (id) => {
   return res.data.data;
 };
 
-export const updateStockService = async (variantId, quantity) => {
-  const res = await updateStockApi(variantId, quantity);
-  
-  return res.data.data;
+export const approvePreorderService = async (orderId) => {
+  const res = await approvePreorderApi(orderId);
+  return res?.data?.data;
 };

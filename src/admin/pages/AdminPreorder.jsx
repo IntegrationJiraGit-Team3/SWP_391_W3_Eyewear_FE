@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState, memo, useEffect } from "react";
 import {
+  approvePreorderService,
   getPreorderItemsService,
   getStockVariantById,
-  updateStockService,
 } from "../services/preOrderService";
 import {
   FiPackage,
@@ -17,7 +17,6 @@ import {
   FiCheckCircle,
   FiRefreshCw,
 } from "react-icons/fi";
-import { updateOrderStatus } from "../services/orderService";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "../../context/ToastContext";
 
@@ -102,14 +101,15 @@ function MiniPipeline({ currentStep, cancelled }) {
           <div key={s.id} className="flex items-center">
             <div
               className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border transition-all
-              ${cancelled && currentStep <= s.id
+              ${
+                cancelled && currentStep <= s.id
                   ? "bg-gray-100 border-gray-200 text-gray-300"
                   : done
                     ? "bg-green-500 border-green-500 text-white"
                     : active
                       ? `${cx.bg} ${cx.border} ${cx.text} border`
                       : "bg-gray-50 border-gray-200 text-gray-300"
-                }`}
+              }`}
               title={s.label}
             >
               {done ? <FiCheck size={9} /> : i + 1}
@@ -172,8 +172,12 @@ const PreorderRow = memo(({ order, checkStock, onFastApprove }) => {
       </td>
 
       <td className="px-5 py-4">
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${order.allInStock ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${order.allInStock ? "bg-green-500" : "bg-amber-400"}`} />
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${order.allInStock ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${order.allInStock ? "bg-green-500" : "bg-amber-400"}`}
+          />
           {order.allInStock ? "Ready to ship" : "Waiting for items"}
         </span>
       </td>
@@ -186,20 +190,22 @@ const PreorderRow = memo(({ order, checkStock, onFastApprove }) => {
           </span>
         ) : (
           <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${order.step === 6
-              ? "bg-green-50 text-green-700 border-green-200"
-              : order.step === 0
-                ? "bg-yellow-50 text-yellow-700 border-yellow-200"
-                : "bg-blue-50 text-blue-700 border-blue-200"
-              }`}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+              order.step === 6
+                ? "bg-green-50 text-green-700 border-green-200"
+                : order.step === 0
+                  ? "bg-yellow-50 text-yellow-700 border-yellow-200"
+                  : "bg-blue-50 text-blue-700 border-blue-200"
+            }`}
           >
             <span
-              className={`w-1.5 h-1.5 rounded-full ${order.step === 6
-                ? "bg-green-500"
-                : order.step === 0
-                  ? "bg-yellow-400"
-                  : "bg-blue-400"
-                }`}
+              className={`w-1.5 h-1.5 rounded-full ${
+                order.step === 6
+                  ? "bg-green-500"
+                  : order.step === 0
+                    ? "bg-yellow-400"
+                    : "bg-blue-400"
+              }`}
             />
             {order.step === 6
               ? "Completed"
@@ -288,7 +294,7 @@ export default function AdminPreorders() {
 
       // 1. Group items by orderId
       const groups = {};
-      data.forEach(item => {
+      data.forEach((item) => {
         if (!groups[item.orderId]) {
           groups[item.orderId] = {
             orderId: item.orderId,
@@ -300,7 +306,7 @@ export default function AdminPreorders() {
             address: item.address,
             createdAt: item.createdAt,
             note: item.note,
-            items: []
+            items: [],
           };
         }
         groups[item.orderId].items.push(item);
@@ -322,13 +328,15 @@ export default function AdminPreorders() {
                 ...it,
                 name: it.productName || "Product",
                 img: it.imageUrl || "https://placehold.co/50",
-                currentStock
+                currentStock,
               };
-            })
+            }),
           );
 
           // Determine overall stock status for the order
-          const allInStock = itemsWithStock.every(it => it.currentStock >= it.quantity);
+          const allInStock = itemsWithStock.every(
+            (it) => it.currentStock >= it.quantity,
+          );
 
           return {
             id: group.orderCode,
@@ -347,7 +355,7 @@ export default function AdminPreorders() {
             cancelled: group.orderStatus === "CANCELLED",
             history: [],
           };
-        })
+        }),
       );
 
       setOrders(mapped.sort((a, b) => a.rawDate - b.rawDate));
@@ -363,13 +371,18 @@ export default function AdminPreorders() {
         order.items.map(async (it) => {
           const res = await getStockVariantById(it.variantId);
           return { ...it, freshStock: res?.stockQuantity ?? 0 };
-        })
+        }),
       );
 
-      const missingItems = itemsWithFreshStock.filter(it => it.freshStock < it.quantity);
+      const missingItems = itemsWithFreshStock.filter(
+        (it) => it.freshStock < it.quantity,
+      );
 
       if (missingItems.length > 0) {
-        showToast(`Missing stock for: ${missingItems.map(it => it.name).join(", ")}`, "error");
+        showToast(
+          `Missing stock for: ${missingItems.map((it) => it.name).join(", ")}`,
+          "error",
+        );
         return;
       }
 
@@ -382,101 +395,68 @@ export default function AdminPreorders() {
   };
 
   const handleFastApprove = async (order) => {
-    if (!window.confirm(`Approve order ${order.id} and deduct stock for all items immediately?`)) return;
+    if (
+      !window.confirm(
+        `Approve order ${order.id} and deduct stock for all items immediately?`,
+      )
+    )
+      return;
     setIsProcessing(true);
     try {
-      // 1. Deduct stock for all items
-      for (const item of order.items) {
-        const variantRes = await getStockVariantById(item.variantId);
-        const currentStock = variantRes?.stockQuantity ?? variantRes?.quantity ?? 0;
-        const newQuantity = Math.max(0, currentStock - (item.quantity || 0));
-        await updateStockService(item.variantId, newQuantity);
-      }
-
-      // 2. Update order status
-      await updateOrderStatus(order.orderId, "PROCESSING");
-
-      showToast(`Order ${order.id} approved and items deducted!`);
+      await approvePreorderService(order.orderId);
+      showToast(`Order ${order.id} approved successfully!`);
       setTimeout(() => window.location.reload(), 1000);
     } catch (error) {
       console.error(error);
-      showToast("Failed to approve order.", "error");
+      showToast(
+        error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          "Failed to approve order.",
+        "error",
+      );
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleAutoFulfill = async () => {
-    // 1. Filter out orders that are ready and pending
-    const candidates = orders.filter(o => o.step === 0 && !o.cancelled && o.allInStock);
+    const candidates = orders.filter(
+      (o) => o.step === 0 && !o.cancelled && o.allInStock,
+    );
 
     if (candidates.length === 0) {
-      showToast("No additional orders found where ALL items are currently in stock.", "info");
+      showToast(
+        "No additional orders found where ALL items are currently in stock.",
+        "info",
+      );
       return;
     }
 
-    // 2. FIFO sorting already done in state, but let's be sure
     const sorted = [...candidates].sort((a, b) => a.rawDate - b.rawDate);
 
-    // 3. Deduction Pool to prevent over-approving limited stock
-    const variantPool = {}; 
-    const approvedTasks = [];
-
-    for (const order of sorted) {
-      let canFulfillTotal = true;
-      const groupTasks = [];
-
-      for (const item of order.items) {
-        if (variantPool[item.variantId] === undefined) {
-          variantPool[item.variantId] = Number(item.currentStock) || 0;
-        }
-
-        if (variantPool[item.variantId] >= item.quantity) {
-          groupTasks.push({
-            variantId: item.variantId,
-            newQuantity: variantPool[item.variantId] - item.quantity,
-            quantity: item.quantity
-          });
-        } else {
-          canFulfillTotal = false;
-          break;
-        }
-      }
-
-      if (canFulfillTotal) {
-        groupTasks.forEach(gt => {
-          variantPool[gt.variantId] -= gt.quantity;
-        });
-        approvedTasks.push({
-          orderId: order.orderId,
-          code: order.id,
-          stockUpdates: groupTasks
-        });
-      }
-    }
-
-    if (approvedTasks.length === 0) {
-      showToast("Aggregate inventory limit reached. No more complete orders can be fulfilled.", "info");
+    if (
+      !window.confirm(
+        `Found ${sorted.length} orders that can be fully satisfied. Approve them all now?`,
+      )
+    )
       return;
-    }
-
-    if (!window.confirm(`Found ${approvedTasks.length} orders that can be fully satisfied. Approve them all now?`)) return;
 
     setIsProcessing(true);
     let count = 0;
     try {
-      for (const t of approvedTasks) {
-        for (const update of t.stockUpdates) {
-          await updateStockService(update.variantId, update.newQuantity);
+      for (const order of sorted) {
+        try {
+          await approvePreorderService(order.orderId);
+          count++;
+        } catch (error) {
+          console.error(`Approve preorder failed for ${order.orderId}:`, error);
         }
-        await updateOrderStatus(t.orderId, "PROCESSING");
-        count++;
       }
       showToast(`Batch approved ${count} orders!`);
       setTimeout(() => window.location.reload(), 1000);
     } catch (error) {
       console.error(error);
-      showToast("Batch processing interrupted by an error.", "error");
+      showToast("Batch approval failed.", "error");
     } finally {
       setIsProcessing(false);
     }
@@ -485,7 +465,7 @@ export default function AdminPreorders() {
   /* ── filter ── */
   const filtered = useMemo(() => {
     return orders.filter((o) => {
-      // 🟢 Logic: Once approved (step > 0), it should move to Order Management, 
+      // 🟢 Logic: Once approved (step > 0), it should move to Order Management,
       // so we filter it out if we just want to see "Waiting for Approval" items.
       // But we check stepFilter first.
       if (stepFilter === "all" && o.step > 0 && !o.cancelled) return false;
@@ -801,17 +781,25 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
   const { showToast } = useToast();
 
   const handleApprove = async () => {
-    if (!window.confirm("Approve this pre-order and deduct inventory for ALL items?")) return;
+    if (
+      !window.confirm(
+        "Approve this pre-order and deduct inventory for ALL items?",
+      )
+    )
+      return;
     setLoading(true);
     try {
       // 1. Deduct stock for each item sequentially
       for (const item of order.items) {
         const variantRes = await getStockVariantById(item.variantId);
-        const currentStock = variantRes?.stockQuantity ?? variantRes?.quantity ?? 0;
+        const currentStock =
+          variantRes?.stockQuantity ?? variantRes?.quantity ?? 0;
         const qtyToDeduct = Number(item.quantity) || 0;
         const newQuantity = Math.max(0, currentStock - qtyToDeduct);
-        
-        console.log(`Deducting ${qtyToDeduct} from ${currentStock} for ${item.name}. New stock: ${newQuantity}`);
+
+        console.log(
+          `Deducting ${qtyToDeduct} from ${currentStock} for ${item.name}. New stock: ${newQuantity}`,
+        );
         await updateStockService(item.variantId, newQuantity);
       }
 
@@ -824,7 +812,7 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
       console.error("Lỗi xử lý:", error);
       showToast(
         "Error processing pre-order: " +
-        (error.response?.data?.message || error.message),
+          (error.response?.data?.message || error.message),
         "error",
       );
     } finally {
@@ -903,37 +891,62 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
                       Color: {order.color} | Qty: {it.quantity}
                     </p>
                     <div className="mt-1 flex items-center gap-2">
-                       <span
-                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${it.currentStock >= it.quantity ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
-                       >
-                         In stock: {it.currentStock}
-                       </span>
-                       {it.prescription && (
-                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${it.prescription.status ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-purple-50 text-purple-700 border border-purple-200 animate-pulse"}`}>
-                           {it.prescription.status ? <FiCheckCircle size={10} /> : <FiAlertCircle size={10} />}
-                           {it.prescription.status ? "Prescription confirmed" : "Prescription Pending"}
-                         </span>
-                       )}
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${it.currentStock >= it.quantity ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
+                      >
+                        In stock: {it.currentStock}
+                      </span>
+                      {it.prescription && (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${it.prescription.status ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-purple-50 text-purple-700 border border-purple-200 animate-pulse"}`}
+                        >
+                          {it.prescription.status ? (
+                            <FiCheckCircle size={10} />
+                          ) : (
+                            <FiAlertCircle size={10} />
+                          )}
+                          {it.prescription.status
+                            ? "Prescription confirmed"
+                            : "Prescription Pending"}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className={`rounded-xl p-4 flex gap-3 ${order.hasPrescription && !order.prescriptionStatus ? "bg-purple-50 border-purple-200" : "bg-amber-50 border-amber-200"}`}>
+            <div
+              className={`rounded-xl p-4 flex gap-3 ${order.hasPrescription && !order.prescriptionStatus ? "bg-purple-50 border-purple-200" : "bg-amber-50 border-amber-200"}`}
+            >
               {order.hasPrescription && !order.prescriptionStatus ? (
-                <FiFileText className="text-purple-500 flex-shrink-0 mt-0.5" size={16} />
+                <FiFileText
+                  className="text-purple-500 flex-shrink-0 mt-0.5"
+                  size={16}
+                />
               ) : (
-                <FiAlertCircle className="text-amber-500 flex-shrink-0 mt-0.5" size={16} />
+                <FiAlertCircle
+                  className="text-amber-500 flex-shrink-0 mt-0.5"
+                  size={16}
+                />
               )}
-              <div className={`text-xs leading-relaxed ${order.hasPrescription && !order.prescriptionStatus ? "text-purple-800" : "text-stone-800"}`}>
+              <div
+                className={`text-xs leading-relaxed ${order.hasPrescription && !order.prescriptionStatus ? "text-purple-800" : "text-stone-800"}`}
+              >
                 {order.hasPrescription && !order.prescriptionStatus ? (
                   <>
-                    <strong>Prescription required:</strong> This order contains items with vision details that are <strong>not confirmed</strong>. You can approve the order but please ensure the prescription is reviewed before shipping.
+                    <strong>Prescription required:</strong> This order contains
+                    items with vision details that are{" "}
+                    <strong>not confirmed</strong>. You can approve the order
+                    but please ensure the prescription is reviewed before
+                    shipping.
                   </>
                 ) : (
                   <>
-                    <strong>Note:</strong> When you click "Approve Order", the system will move the order status to <strong>Packaging</strong>. This order can then be further processed in the Order Management page.
+                    <strong>Note:</strong> When you click "Approve Order", the
+                    system will move the order status to{" "}
+                    <strong>Packaging</strong>. This order can then be further
+                    processed in the Order Management page.
                   </>
                 )}
               </div>
@@ -951,9 +964,7 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
 
             {order.step === 0 && !order.cancelled && (
               <button
-                disabled={
-                  loading || !order.allInStock
-                }
+                disabled={loading || !order.allInStock}
                 onClick={handleApprove}
                 className="flex-[2] px-4 py-2.5 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all disabled:opacity-50 disabled:grayscale"
               >

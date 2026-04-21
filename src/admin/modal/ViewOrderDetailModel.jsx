@@ -19,7 +19,10 @@ import {
   getShipmentByOrder,
   updateShipment,
 } from "../services/shipmentService";
-import { updatePaymentStatus } from "../services/orderService";
+import {
+  confirmOrderRefunded,
+  updatePaymentStatus,
+} from "../services/orderService";
 
 const ORDER_STATUS_OPTIONS = [
   { value: "PENDING", label: "Pending" },
@@ -86,8 +89,11 @@ const badgeClass = (status) => {
   }
 };
 
-const getAvailableOrderStatusOptions = (currentStatus) => {
+const getAvailableOrderStatusOptions = (currentStatus, refundStatus) => {
   const current = normalizeOrderStatus(currentStatus);
+  const normalizedRefundStatus = String(refundStatus || "NONE").toUpperCase();
+  const canMarkRefund =
+    normalizedRefundStatus && normalizedRefundStatus !== "NONE";
 
   if (current === "CANCELED") {
     return TERMINAL_STATUS_OPTIONS.filter(
@@ -100,9 +106,11 @@ const getAvailableOrderStatusOptions = (currentStatus) => {
     current === "REFUND" ||
     current === "REFUNDED"
   ) {
-    return TERMINAL_STATUS_OPTIONS.filter(
-      (option) => option.value === "COMPLETED" || option.value === "REFUND",
-    );
+    return TERMINAL_STATUS_OPTIONS.filter((option) => {
+      if (option.value === "COMPLETED") return true;
+      if (option.value === "REFUND") return canMarkRefund;
+      return false;
+    });
   }
 
   const currentIndex = ORDER_STATUS_FLOW.indexOf(current);
@@ -155,6 +163,7 @@ function ViewOrderDetailsModal({
   });
   const [savingShipment, setSavingShipment] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
+  const [savingRefund, setSavingRefund] = useState(false);
   const [prescriptionActionMap, setPrescriptionActionMap] = useState({});
 
   useEffect(() => {
@@ -188,9 +197,17 @@ function ViewOrderDetailsModal({
     () => normalizeOrderStatus(order?.status),
     [order?.status],
   );
+
+  const refundStatus = useMemo(
+    () => String(order?.refundStatus || "NONE").toUpperCase(),
+    [order?.refundStatus],
+  );
+  const showRefundInfo = refundStatus && refundStatus !== "NONE";
+  const refundPending = refundStatus === "PENDING";
+  const refundWaitingChoice = refundStatus === "WAITING_REFUND";
   const availableStatusOptions = useMemo(
-    () => getAvailableOrderStatusOptions(orderStatus),
-    [orderStatus],
+    () => getAvailableOrderStatusOptions(orderStatus, refundStatus),
+    [orderStatus, refundStatus],
   );
   const hasSavedTrackingNumber =
     Boolean(shipment?.shipmentId) &&
@@ -257,8 +274,12 @@ function ViewOrderDetailsModal({
 
     try {
       setSavingPayment(true);
+
       await updatePaymentStatus(order.id, "PAID_FULL");
-      window.location.reload();
+
+      alert("Payment marked as completed successfully.");
+
+      onClose?.(); // đóng modal (nếu có)
     } catch (error) {
       console.error("Mark remaining payment failed:", error);
       alert(error?.response?.data?.message || "Update payment status failed");
@@ -270,12 +291,46 @@ function ViewOrderDetailsModal({
   const handleOrderStatusChange = async (nextStatus) => {
     if (nextStatus === orderStatus) return;
 
+    if (nextStatus === "REFUND" && !showRefundInfo) {
+      alert(
+        "Refund can only be processed after the customer has requested a refund.",
+      );
+      return;
+    }
+
     if (nextStatus === "DELIVERING" && !hasSavedTrackingNumber) {
       alert("Please create shipment and tracking number before DELIVERING.");
       return;
     }
 
     await onUpdateStatus?.(nextStatus);
+  };
+
+  const handleConfirmRefunded = async () => {
+    if (!order?.id) return;
+    if (!refundPending) return;
+
+    const note = window.prompt(
+      "Refund note (optional):",
+      order?.refundNote || "Refund completed",
+    );
+
+    if (note === null) return;
+
+    const confirmed = window.confirm("Mark this order refund as completed?");
+    if (!confirmed) return;
+
+    try {
+      setSavingRefund(true);
+      await confirmOrderRefunded(order.id, { note: String(note || "").trim() });
+      alert("Refund marked as completed successfully.");
+      onClose?.();
+    } catch (error) {
+      console.error("Confirm refund failed:", error);
+      alert(error?.response?.data?.message || "Confirm refund failed");
+    } finally {
+      setSavingRefund(false);
+    }
   };
 
   const renderPrescriptionBlock = (item) => {
@@ -503,6 +558,96 @@ function ViewOrderDetailsModal({
                 )}
               </div>
             </div>
+
+            {showRefundInfo && (
+              <div className="rounded-2xl border p-5 bg-gray-50">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">
+                      Refund Information
+                    </h3>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {refundWaitingChoice
+                        ? "Cancelled & paid. Waiting for customer refund choice."
+                        : "For cancelled orders paid online."}
+                    </div>
+                  </div>
+                  <span
+                    className={`inline-flex px-3 py-1 rounded-full border text-xs font-semibold ${
+                      refundStatus === "REFUNDED"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-blue-50 text-blue-700 border-blue-200"
+                    }`}
+                  >
+                    {refundStatus}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl border bg-white p-3">
+                    <div className="text-xs font-semibold text-gray-500">
+                      Requested At
+                    </div>
+                    <div className="font-semibold text-gray-800">
+                      {order?.refundRequestedAt
+                        ? new Date(order.refundRequestedAt).toLocaleString(
+                            "vi-VN",
+                          )
+                        : "-"}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border bg-white p-3">
+                    <div className="text-xs font-semibold text-gray-500">
+                      Processed At
+                    </div>
+                    <div className="font-semibold text-gray-800">
+                      {order?.refundProcessedAt
+                        ? new Date(order.refundProcessedAt).toLocaleString(
+                            "vi-VN",
+                          )
+                        : "-"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border bg-white p-3">
+                    <div className="text-xs font-semibold text-gray-500">
+                      Bank
+                    </div>
+                    <div className="font-semibold text-gray-800">
+                      {order?.refundBankName || "-"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {order?.refundBankAccountNumber || "-"}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border bg-white p-3">
+                    <div className="text-xs font-semibold text-gray-500">
+                      Account Holder
+                    </div>
+                    <div className="font-semibold text-gray-800">
+                      {order?.refundBankAccountHolder || "-"}
+                    </div>
+                  </div>
+                </div>
+
+                {order?.refundNote && (
+                  <div className="mt-3 text-sm text-gray-700">
+                    <span className="font-semibold">Note:</span>{" "}
+                    {order.refundNote}
+                  </div>
+                )}
+
+                {refundPending && (
+                  <button
+                    onClick={handleConfirmRefunded}
+                    disabled={savingRefund}
+                    className="mt-4 inline-flex items-center justify-center rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-60"
+                  >
+                    {savingRefund ? "Saving..." : "Mark Refunded"}
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="rounded-2xl border p-5">
               <h3 className="text-base font-bold text-gray-900 mb-4">

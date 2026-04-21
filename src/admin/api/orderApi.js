@@ -16,3 +16,10 @@ export const updateOrderStatusApi = async (orderId, status) => {
   return axiosClient.patch(`/orders/${orderId}/status?status=${status}`);
 };
 
+export const confirmOrderRefundedApi = async (orderId, payload) => {
+  return axiosClient.patch(`/orders/${orderId}/confirm-refunded`, payload || {});
+};
+
+export const approvePreorderApi = async (orderId) => {
+  return axiosClient.post(`/orders/${orderId}/approve-preorder`);
+};

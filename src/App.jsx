@@ -6,6 +6,9 @@ import RegisterPage from "./store/pages/RegisterPage.jsx";
 import ProductDetailPage from "./store/pages/ProductDetailPage.jsx";
 import ShopPage from "./store/pages/ShopPage.jsx";
 import AdminOverview from "./admin/pages/AdminOverview.jsx";
+import AdminOrderReport from "./admin/pages/AdminOrderReport.jsx";
+import AdminProductReport from "./admin/pages/AdminProductReport.jsx";
+import AdminCustomerReport from "./admin/pages/AdminCustomerReport.jsx";
 import StoreLayout from "./store/layout/StoreLayout";
 import AdminLayout from "./admin/layout/AdminLayout";
 import AdminProducts from "./admin/pages/AdminProducts.jsx";
@@ -66,6 +69,18 @@ function App() {
           }
         >
           <Route path="/dashboard" element={<AdminOverview />} />
+          <Route
+            path="/dashboard/report-orders"
+            element={<AdminOrderReport />}
+          />
+          <Route
+            path="/dashboard/report-products"
+            element={<AdminProductReport />}
+          />
+          <Route
+            path="/dashboard/report-customers"
+            element={<AdminCustomerReport />}
+          />
           <Route path="/dashboard/profile" element={<AdminProfile />} />
           <Route path="/dashboard/products" element={<AdminProducts />} />
           <Route path="/dashboard/orders" element={<AdminOrders />} />

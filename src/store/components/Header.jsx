@@ -2,9 +2,12 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { FiShoppingBag, FiClipboard, FiBell } from "react-icons/fi";
 import notificationService from "../services/notificationService";
+import { useToast } from "../../context/ToastContext";
+import ConfirmDialog from "../../shared/common/ConfirmDialog";
 
 function Header() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const MENU_ITEMS = [
     { label: "Store", path: "/shop" },
@@ -29,6 +32,7 @@ function Header() {
   });
 
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   const userRef = useRef(null);
@@ -111,8 +115,9 @@ function Header() {
     setCurrentUser(null);
     setCart([]);
     setShowUserMenu(false);
-
-    navigate("/");
+    setShowLogoutConfirm(false);
+    showToast("Logout successful!");
+    navigate("/login");
   };
 
   return (
@@ -393,7 +398,7 @@ function Header() {
                     </Link>
 
                     <button
-                      onClick={handleLogout}
+                      onClick={() => setShowLogoutConfirm(true)}
                       className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors font-medium"
                     >
                       Logout
@@ -434,6 +439,17 @@ function Header() {
           </div>
         </div>
       </header>
+
+      <ConfirmDialog
+        open={showLogoutConfirm}
+        title="Confirm logout"
+        message="You are about to sign out of your account. Continue?"
+        confirmText="Logout"
+        cancelText="Stay logged in"
+        danger
+        onConfirm={handleLogout}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </>
   );
 }

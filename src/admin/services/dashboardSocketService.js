@@ -12,9 +12,11 @@ function buildDashboardSocketUrl({ fromDate, toDate, groupBy }) {
 
     if (explicitUrl) {
         const url = new URL(explicitUrl);
+
         if (fromDate) url.searchParams.set("fromDate", fromDate);
         if (toDate) url.searchParams.set("toDate", toDate);
         if (groupBy) url.searchParams.set("groupBy", groupBy);
+
         return url.toString();
     }
 
@@ -37,13 +39,17 @@ function buildDashboardSocketUrl({ fromDate, toDate, groupBy }) {
 function normalizeSocketPayload(payload) {
     if (!payload || typeof payload !== "object") return null;
 
-    const nested = payload.data?.data || payload.payload?.data;
+    const nested = payload?.data?.data || payload?.payload?.data;
     if (nested && typeof nested === "object") return nested;
 
-    const direct = payload.data || payload.payload || payload.analytics;
+    const direct = payload?.data || payload?.payload || payload?.analytics;
     if (direct && typeof direct === "object") return direct;
 
-    if (Array.isArray(payload.timeline) || payload.totalRevenue != null) {
+    if (
+        Array.isArray(payload?.timeline) ||
+        payload?.totalRevenue != null ||
+        payload?.grossRevenue != null
+    ) {
         return payload;
     }
 
@@ -89,8 +95,8 @@ export function connectDashboardSocket({
 
             try {
                 socket.send(JSON.stringify(subscribeMessage));
-            } catch {
-                //
+            } catch (error) {
+                console.error("Dashboard socket subscribe error:", error);
             }
         };
 
@@ -109,7 +115,11 @@ export function connectDashboardSocket({
             if (isDisposed) return;
 
             reconnectAttempt += 1;
-            const delay = Math.min(1000 * 2 ** (reconnectAttempt - 1), MAX_RECONNECT_DELAY_MS);
+            const delay = Math.min(
+                1000 * 2 ** (reconnectAttempt - 1),
+                MAX_RECONNECT_DELAY_MS,
+            );
+
             reconnectTimer = window.setTimeout(connect, delay);
         };
     };
@@ -126,7 +136,8 @@ export function connectDashboardSocket({
 
         if (
             socket &&
-            (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
+            (socket.readyState === WebSocket.OPEN ||
+                socket.readyState === WebSocket.CONNECTING)
         ) {
             socket.close();
         }

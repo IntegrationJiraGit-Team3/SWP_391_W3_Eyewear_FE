@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiEye, FiFilter, FiSearch, FiShoppingBag } from "react-icons/fi";
+import {
+  FiEye,
+  FiFilter,
+  FiRefreshCw,
+  FiSearch,
+  FiShoppingBag,
+} from "react-icons/fi";
 import ViewOrderDetailsModal from "../modal/ViewOrderDetailModel";
 import {
   getAllOrders,
@@ -52,6 +58,7 @@ function AdminOrders() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -88,12 +95,19 @@ function AdminOrders() {
 
   useEffect(() => {
     const initialTimer = setTimeout(fetchOrders, 0);
-    const interval = setInterval(fetchOrders, 10000);
     return () => {
       clearTimeout(initialTimer);
-      clearInterval(interval);
     };
   }, [fetchOrders]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchOrders();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const filteredOrders = useMemo(() => {
     return (orders || []).filter((order) => {
@@ -109,7 +123,11 @@ function AdminOrders() {
           .includes(search.toLowerCase());
 
       const rawStatus = String(order.status || "").toLowerCase();
-      const matchesStatus = status === "all" || rawStatus === status;
+      const refundStatus = String(order.refundStatus || "").toUpperCase();
+      const matchesStatus =
+        status === "all" ||
+        rawStatus === status ||
+        (status === "refund_pending" && refundStatus === "PENDING");
 
       return matchesSearch && matchesStatus;
     });
@@ -195,9 +213,24 @@ function AdminOrders() {
               <option value="delivered">Delivered</option>
               <option value="completed">Completed</option>
               <option value="refund">Refund</option>
+              <option value="refund_pending">Refund pending</option>
               <option value="canceled">Canceled</option>
               <option value="cancelled">Cancelled</option>
             </select>
+
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 rounded-xl bg-gray-50 text-gray-700 px-4 py-3 text-sm font-semibold border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Refresh"
+            >
+              <FiRefreshCw
+                size={16}
+                className={refreshing ? "animate-spin" : ""}
+              />
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
           </div>
         </div>
 
@@ -278,11 +311,28 @@ function AdminOrders() {
                     )}
                   </td>
                   <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex px-3 py-1 rounded-full border text-xs font-semibold ${statusColor(order.status)}`}
-                    >
-                      {order.status}
-                    </span>
+                    <div className="inline-flex flex-col items-start">
+                      <span
+                        className={`inline-flex px-3 py-1 rounded-full border text-xs font-semibold ${statusColor(order.status)}`}
+                      >
+                        {order.status}
+                      </span>
+                      {String(order.refundStatus || "").toUpperCase() &&
+                        String(order.refundStatus || "").toUpperCase() !==
+                          "NONE" && (
+                          <span
+                            className={`mt-1 inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
+                              String(order.refundStatus || "").toUpperCase() ===
+                              "REFUNDED"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : "bg-blue-50 text-blue-700 border-blue-200"
+                            }`}
+                          >
+                            Refund:{" "}
+                            {String(order.refundStatus || "").toUpperCase()}
+                          </span>
+                        )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-gray-500">{order.createdAt}</td>
                   <td className="px-6 py-4 text-right">
@@ -315,7 +365,10 @@ function AdminOrders() {
       {selectedOrder && (
         <ViewOrderDetailsModal
           order={selectedOrder}
-          onClose={() => setSelectedOrder(null)}
+          onClose={() => {
+            setSelectedOrder(null);
+            fetchOrders();
+          }}
           onUpdateStatus={handleUpdateStatus}
           onPrescriptionAction={handlePrescriptionAction}
         />
