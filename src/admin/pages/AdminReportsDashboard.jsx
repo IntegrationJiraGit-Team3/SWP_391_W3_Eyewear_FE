@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Chart from "react-apexcharts";
 import { motion } from "framer-motion";
 import {
@@ -24,7 +24,6 @@ function AdminReportsDashboard({ type = "overview" }) {
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [groupBy, setGroupBy] = useState("DAILY");
-  const [refreshing, setRefreshing] = useState(false);
   const [fromDate, setFromDate] = useState(() => {
     const today = new Date();
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -32,31 +31,22 @@ function AdminReportsDashboard({ type = "overview" }) {
   });
   const [toDate, setToDate] = useState(() => toInputDate(new Date()));
 
-  const fetchDashboard = useCallback(
-    async (isManualRefresh = false) => {
-      try {
-        if (isManualRefresh) {
-          setRefreshing(true);
-        } else {
-          setLoading(true);
-        }
+  useEffect(() => {
+    let disposeSocket = () => {};
 
+    const fetchDashboard = async () => {
+      try {
+        setLoading(true);
         const data = await getDashboardAnalytics(fromDate, toDate, groupBy);
         setAnalytics(data);
       } catch (error) {
         console.error("Fetch dashboard analytics error:", error);
       } finally {
         setLoading(false);
-        setRefreshing(false);
       }
-    },
-    [fromDate, toDate, groupBy],
-  );
+    };
 
-  useEffect(() => {
-    let disposeSocket = () => {};
-
-    fetchDashboard(false);
+    fetchDashboard();
 
     disposeSocket = connectDashboardSocket({
       fromDate,
@@ -65,17 +55,14 @@ function AdminReportsDashboard({ type = "overview" }) {
       onAnalytics: (nextAnalytics) => {
         setAnalytics(nextAnalytics);
         setLoading(false);
-        setRefreshing(false);
       },
       onError: (error) => {
         console.error("Dashboard socket error:", error);
-        setLoading(false);
-        setRefreshing(false);
       },
     });
 
     return () => disposeSocket();
-  }, [fetchDashboard, fromDate, toDate, groupBy]);
+  }, [fromDate, toDate, groupBy]);
 
   const grossRevenue = toNumber(
     analytics?.grossRevenue ?? analytics?.totalRevenue,
@@ -103,22 +90,20 @@ function AdminReportsDashboard({ type = "overview" }) {
   const kpiRates = useMemo(() => {
     const completed = toNumber(analytics?.completedOrders);
     const cancelled = toNumber(analytics?.cancelledOrders);
-    const outcomeTotal = completed + refundedOrders + cancelled;
 
-    if (outcomeTotal <= 0) {
+    const totalOrders = toNumber(analytics?.totalOrders);
+    if (totalOrders <= 0) {
       return { completionRate: 0, refundRate: 0, cancelRate: 0 };
     }
 
     const refundRate = Number(
-      ((refundedOrders / outcomeTotal) * 100).toFixed(1),
+      ((refundedOrders / totalOrders) * 100).toFixed(1),
     );
-    const completionRate = Number(
-      ((completed / outcomeTotal) * 100).toFixed(1),
-    );
-    const cancelRate = Number(((cancelled / outcomeTotal) * 100).toFixed(1));
+    const completionRate = Number(((completed / totalOrders) * 100).toFixed(1));
+    const cancelRate = Number(((cancelled / totalOrders) * 100).toFixed(1));
 
     return { completionRate, refundRate, cancelRate };
-  }, [analytics, refundedOrders]);
+  }, [analytics, processedOrders, refundedOrders]);
 
   const revenueGroup = useMemo(() => {
     const completedRevenue = Math.max(
@@ -215,7 +200,7 @@ function AdminReportsDashboard({ type = "overview" }) {
     ];
 
     return applyPercentages(rows, "count", "percent");
-  }, [analytics, refundedOrders]);
+  }, [analytics]);
 
   const orderStatusRows = useMemo(() => {
     const baseRows = [
@@ -246,7 +231,7 @@ function AdminReportsDashboard({ type = "overview" }) {
     ];
 
     return applyPercentages(baseRows, "count", "percent");
-  }, [analytics, refundedOrders]);
+  }, [analytics]);
 
   const orderOutcomeGroup = useMemo(() => {
     const rows = [
@@ -265,7 +250,15 @@ function AdminReportsDashboard({ type = "overview" }) {
     ];
 
     return applyPercentages(rows, "value", "share");
-  }, [analytics, refundedOrders]);
+  }, [analytics]);
+
+  const orderStatusShares = useMemo(() => {
+    const map = Object.create(null);
+    for (const row of orderStatusRows) {
+      map[row.status] = toNumber(row.percent);
+    }
+    return map;
+  }, [orderStatusRows]);
 
   const orderStatusMap = useMemo(() => {
     const map = Object.create(null);
@@ -311,21 +304,21 @@ function AdminReportsDashboard({ type = "overview" }) {
       {
         title: "Tỉ lệ hoàn trả",
         value: `${kpiRates.refundRate.toFixed(1)}%`,
-        sub: "Refunded / (Complete + Refund + Cancel)",
+        sub: "Refunded / Tổng đơn",
         icon: FiRefreshCcw,
         color: "bg-amber-100 text-amber-600",
       },
       {
         title: "Tỉ lệ hoàn tất",
         value: `${kpiRates.completionRate.toFixed(1)}%`,
-        sub: "Completed / (Complete + Refund + Cancel)",
+        sub: "Completed / Tổng đơn",
         icon: FiTrendingUp,
         color: "bg-sky-100 text-sky-600",
       },
       {
         title: "Tỉ lệ hủy đơn",
         value: `${kpiRates.cancelRate.toFixed(1)}%`,
-        sub: "Cancelled / (Complete + Refund + Cancel)",
+        sub: "Cancelled / Tổng đơn",
         icon: FiXCircle,
         color: "bg-red-100 text-red-600",
       },
@@ -682,6 +675,7 @@ function AdminReportsDashboard({ type = "overview" }) {
     const totalSold = frameSold + lensSold;
     const totalItems = frameTotalItems + lensTotalItems;
 
+    // ✅ Đồng bộ doanh thu với phần "Doanh thu theo sản phẩm"
     const frameRevenue = frameRevenueRows.reduce((sum, item) => {
       const completed = toNumber(item?.completedRevenue);
       const refunded = toNumber(item?.refundedRevenue);
@@ -715,6 +709,7 @@ function AdminReportsDashboard({ type = "overview" }) {
         sold: lensSold,
         stock: lensStock,
         totalItems: lensTotalItems,
+        soldShareInItems: percent(lensSold, lensTotalItems),
         revenue: lensRevenue,
         revenueShareInTotal: percent(lensRevenue, totalRevenue),
       },
@@ -1052,28 +1047,23 @@ function AdminReportsDashboard({ type = "overview" }) {
 
   return (
     <div className="min-h-screen bg-slate-50 px-8 pb-12 pt-6">
-      <motion.div
-        {...fadeUp(0)}
-        className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between"
-      >
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">
-            {type === "overview" && "Báo cáo tổng quan"}
-            {type === "orders" && "Báo cáo đơn hàng"}
-            {type === "products" && "Báo cáo sản phẩm"}
-            {type === "customers" && "Báo cáo khách hàng"}
-          </h1>
-          <p className="text-sm text-slate-500">
-            {type === "overview" &&
-              "Tổng hợp toàn cảnh doanh thu, đơn hàng, khách hàng và biến động theo thời gian."}
-            {type === "orders" &&
-              "Tập trung vào trạng thái đơn hàng, tỉ lệ hoàn tất, hoàn trả và các đơn nổi bật."}
-            {type === "products" &&
-              "Tập trung vào sản phẩm bán chạy, doanh thu theo sản phẩm và ảnh hưởng refund."}
-            {type === "customers" &&
-              "Tập trung vào khách hàng chi tiêu nhiều, mua nhiều đơn, hay hủy đơn và sản phẩm yêu thích."}
-          </p>
-        </div>
+      <motion.div {...fadeUp(0)} className="mb-6 flex flex-col gap-2">
+        <h1 className="text-3xl font-bold text-slate-900">
+          {type === "overview" && "Báo cáo tổng quan"}
+          {type === "orders" && "Báo cáo đơn hàng"}
+          {type === "products" && "Báo cáo sản phẩm"}
+          {type === "customers" && "Báo cáo khách hàng"}
+        </h1>
+        <p className="text-sm text-slate-500">
+          {type === "overview" &&
+            "Tổng hợp toàn cảnh doanh thu, đơn hàng, khách hàng và biến động theo thời gian."}
+          {type === "orders" &&
+            "Tập trung vào trạng thái đơn hàng, tỉ lệ hoàn tất, hoàn trả và các đơn nổi bật."}
+          {type === "products" &&
+            "Tập trung vào sản phẩm bán chạy, doanh thu theo sản phẩm và ảnh hưởng refund."}
+          {type === "customers" &&
+            "Tập trung vào khách hàng chi tiêu nhiều, mua nhiều đơn, hay hủy đơn và sản phẩm yêu thích."}
+        </p>
       </motion.div>
 
       <motion.section
@@ -1105,24 +1095,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                 Theo tháng
               </ToggleButton>
             </div>
-
-            <button
-              type="button"
-              onClick={() => fetchDashboard(true)}
-              disabled={refreshing}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-            >
-              <FiRefreshCcw
-                className={refreshing ? "animate-spin" : ""}
-                size={15}
-              />
-              {refreshing && (
-                <div className="mt-2 flex items-center gap-2 text-sm text-sky-600">
-                  <FiRefreshCcw className="animate-spin" />
-                  Đang tải dữ liệu báo cáo...
-                </div>
-              )}
-            </button>
           </div>
         </div>
       </motion.section>
@@ -1348,19 +1320,27 @@ function AdminReportsDashboard({ type = "overview" }) {
           <DashboardCard
             delay={0.16}
             title="Phân bố trạng thái đơn hàng"
-            description="Biểu đồ dùng mẫu số Tổng đơn. Đã bỏ bảng chi tiết thừa, chỉ giữ biểu đồ và các card trạng thái."
+            description="Biểu đồ và KPI dùng cùng mẫu số Tổng đơn nên % sẽ khớp nhau."
             icon={<FiShoppingBag className="text-blue-500" size={20} />}
           >
             {loading ? (
               <LoadingBlock />
             ) : (
               <div className="space-y-4">
-                <div className="flex justify-center">
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.05fr_0.95fr]">
                   <Chart
                     options={orderDonutOptions}
                     series={orderDonutSeries}
                     type="donut"
                     height={340}
+                  />
+                  <SimpleTable
+                    headers={["Trạng thái", "Số lượng", "Tỉ trọng"]}
+                    rows={orderStatusRows.map((item) => [
+                      item.status,
+                      formatCompactNumber(item.count),
+                      `${item.percent}%`,
+                    ])}
                   />
                 </div>
 
@@ -1440,7 +1420,7 @@ function AdminReportsDashboard({ type = "overview" }) {
           <DashboardCard
             delay={0.2}
             title="KPI đơn hàng"
-            description="3 tỉ lệ này dùng cùng mẫu số Complete + Refund + Cancel nên sẽ cộng đúng 100%."
+            description="Tỉ lệ Refunded/Completed/Cancelled tính trên Tổng đơn và khớp với bảng Phân bố trạng thái."
             icon={<FiTrendingUp className="text-emerald-500" size={20} />}
           >
             {loading ? (
@@ -1450,18 +1430,18 @@ function AdminReportsDashboard({ type = "overview" }) {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                   <KpiBox
                     title="Tỉ lệ hoàn trả"
-                    value={`${kpiRates.refundRate.toFixed(1)}%`}
-                    sub="Refunded / (Complete + Refund + Cancel)"
+                    value={`${toNumber(orderStatusShares.Refunded).toFixed(1)}%`}
+                    sub="Refunded / Tổng đơn"
                   />
                   <KpiBox
                     title="Tỉ lệ hoàn tất"
-                    value={`${kpiRates.completionRate.toFixed(1)}%`}
-                    sub="Completed / (Complete + Refund + Cancel)"
+                    value={`${toNumber(orderStatusShares.Completed).toFixed(1)}%`}
+                    sub="Completed / Tổng đơn"
                   />
                   <KpiBox
                     title="Tỉ lệ hủy đơn"
-                    value={`${kpiRates.cancelRate.toFixed(1)}%`}
-                    sub="Cancelled / (Complete + Refund + Cancel)"
+                    value={`${toNumber(orderStatusShares.Cancelled).toFixed(1)}%`}
+                    sub="Cancelled / Tổng đơn"
                   />
                   <KpiBox
                     title="Tổng đơn"

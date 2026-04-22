@@ -248,35 +248,11 @@ export default function PrescriptionPage() {
   const savePreorderFlag = (variant) => {
     if ((variant?.stockQuantity || 0) !== 0) return;
 
-    try {
-      const preorders =
-        JSON.parse(localStorage.getItem("frontend_preorders")) || {};
-      preorders[variant.variantId] = true;
-      localStorage.setItem("frontend_preorders", JSON.stringify(preorders));
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleBuyFrameOnly = async () => {
-    const variant = getSelectedFrameVariant();
-    if (!variant?.variantId) {
-      showToast("Không tìm thấy biến thể của gọng kính.");
-      return;
-    }
-
-    const parentId = Date.now();
-    const frameItem = buildFrameItem(variant, parentId);
-
-    setSubmitting(true);
-    try {
-      saveToLocalCart([frameItem]);
-      savePreorderFlag(variant);
-
       if (localStorage.getItem("token")) {
-        await addToCartApi({
-          productId: frameItem.productId,
-          variantId: frameItem.variantId,
+        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
+        const payload = {
+          productId,
+          variantId,
           quantity: quantityFromUrl,
           isLens: false,
           isPreorder: frameItem.isPreorder,
@@ -318,9 +294,21 @@ export default function PrescriptionPage() {
       savePreorderFlag(lensVariant);
 
       if (localStorage.getItem("token")) {
-        await addToCartApi({
-          productId: frameItem.productId,
-          variantId: frameItem.variantId,
+        if (form.savePrescription) {
+          try {
+            const res = await saveUserPrescription(prescriptionData);
+            console.log(res);
+          } catch (e) {
+            console.error("Failed to save prescription", e);
+          }
+        }
+
+        const isOutOfStock = variant?.stockQuantity === 0;
+        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
+
+        const framePayload = {
+          productId: productId,
+          variantId: variantId,
           quantity: quantityFromUrl,
           isLens: false,
           isPreorder: frameItem.isPreorder,
