@@ -43,8 +43,8 @@ function OrderSuccessPage() {
 
                     <h2 className="text-4xl font-black text-slate-900 mb-3 tracking-tight">Order Successful!</h2>
                     <p className="text-slate-500 mb-10 leading-relaxed font-medium">
-                        Thank you for choosing <span className="text-blue-600 font-bold tracking-tighter italic">FALCON</span>. 
-                        Your premium order is now being processed.
+                        Cảm ơn bạn đã chọn <span className="text-blue-600 font-bold tracking-tighter italic">FALCON</span>. 
+                        Đơn hàng của bạn đang được xử lý.
                     </p>
 
                     {/* Order Details Card */}
@@ -71,12 +71,12 @@ function OrderSuccessPage() {
                             className="group w-full bg-blue-600 text-white py-5 rounded-[24px] font-black text-sm uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 flex items-center justify-center gap-2"
                         >
                             <FiTruck size={18} />
-                            Track Progress
+                            Theo dõi đơn hàng
                             <FiChevronRight className="group-hover:translate-x-1 transition-transform" />
                         </button>
                         
                         <Link to="/" className="w-full text-slate-400 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest hover:text-slate-900 transition-colors">
-                            Continue Shopping
+                            Tiếp tục mua sắm
                         </Link>
                     </div>
                 </div>
