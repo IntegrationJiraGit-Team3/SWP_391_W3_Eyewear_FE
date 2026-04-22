@@ -16,6 +16,7 @@ import {
   FiZap,
   FiCheckCircle,
   FiRefreshCw,
+  FiFileText,
 } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "../../context/ToastContext";
@@ -164,7 +165,9 @@ const PreorderRow = memo(({ order, checkStock, onFastApprove }) => {
         {order.items.map((item, i) => (
           <div key={i}>
             <p className="text-sm font-medium text-gray-800">
-              {item.name} - {order.color}
+              {item.name}
+              {item.color ? ` - ${item.color}` : ""}
+              {item.frameSize ? ` - ${item.frameSize}` : ""}
             </p>
             <p className="text-xs text-gray-400">Quantity: {item.quantity}</p>
           </div>
@@ -220,6 +223,7 @@ const PreorderRow = memo(({ order, checkStock, onFastApprove }) => {
       <td className="px-5 py-4 text-sm text-gray-400 whitespace-nowrap">
         {order.createdAt}
       </td>
+
       <td className="px-5 py-4 text-right">
         <div className="flex justify-end gap-2">
           {canApprove && (
@@ -235,6 +239,7 @@ const PreorderRow = memo(({ order, checkStock, onFastApprove }) => {
               </span>
             </div>
           )}
+
           <div className="relative group/tip">
             <button
               onClick={() => checkStock(order)}
@@ -265,6 +270,7 @@ export default function AdminPreorders() {
   const [isProcessing, setIsProcessing] = useState(false);
   const { showToast } = useToast();
   const itemsPerPage = 7;
+
   const mapStatusToStep = (status) => {
     const s = String(status || "").toUpperCase();
     switch (s) {
@@ -288,11 +294,10 @@ export default function AdminPreorders() {
     }
   };
 
-  useEffect(() => {
-    const fetchPreorder = async () => {
+  const fetchPreorder = useCallback(async () => {
+    try {
       const data = await getPreorderItemsService();
 
-      // 1. Group items by orderId
       const groups = {};
       data.forEach((item) => {
         if (!groups[item.orderId]) {
@@ -312,7 +317,6 @@ export default function AdminPreorders() {
         groups[item.orderId].items.push(item);
       });
 
-      // 2. Map groups to row objects with accurate stock per item
       const mapped = await Promise.all(
         Object.values(groups).map(async (group) => {
           const itemsWithStock = await Promise.all(
@@ -324,6 +328,7 @@ export default function AdminPreorders() {
               } catch (e) {
                 console.error("Stock error:", e);
               }
+
               return {
                 ...it,
                 name: it.productName || "Product",
@@ -348,25 +353,30 @@ export default function AdminPreorders() {
             createdAt: new Date(group.createdAt).toLocaleDateString("en-US"),
             rawDate: new Date(group.createdAt),
             note: group.note,
-            avatar: `https://ui-avatars.com/api/?name=${group.customerName}`,
+            avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(group.customerName || "User")}`,
             items: itemsWithStock,
             allInStock,
             step: mapStatusToStep(group.orderStatus),
-            cancelled: group.orderStatus === "CANCELLED",
+            cancelled:
+              String(group.orderStatus || "").toUpperCase() === "CANCELLED",
             history: [],
           };
         }),
       );
 
       setOrders(mapped.sort((a, b) => a.rawDate - b.rawDate));
-    };
+    } catch (error) {
+      console.error(error);
+      showToast("Failed to load pre-orders.", "error");
+    }
+  }, [showToast]);
 
+  useEffect(() => {
     fetchPreorder();
-  }, []);
+  }, [fetchPreorder]);
 
   const checkStockBeforeConfirm = async (order) => {
     try {
-      // Re-verify stock for all items
       const itemsWithFreshStock = await Promise.all(
         order.items.map(async (it) => {
           const res = await getStockVariantById(it.variantId);
@@ -386,8 +396,13 @@ export default function AdminPreorders() {
         return;
       }
 
-      showToast("All items are available in inventory.");
-      setViewing(order);
+      setViewing({
+        ...order,
+        items: itemsWithFreshStock.map((it) => ({
+          ...it,
+          currentStock: it.freshStock,
+        })),
+      });
     } catch (error) {
       console.error(error);
       showToast("Error checking stock!", "error");
@@ -443,6 +458,7 @@ export default function AdminPreorders() {
 
     setIsProcessing(true);
     let count = 0;
+
     try {
       for (const order of sorted) {
         try {
@@ -452,8 +468,11 @@ export default function AdminPreorders() {
           console.error(`Approve preorder failed for ${order.orderId}:`, error);
         }
       }
+
       showToast(`Batch approved ${count} orders!`);
-      setTimeout(() => window.location.reload(), 1000);
+      setViewing(null);
+
+      await fetchPreorder();
     } catch (error) {
       console.error(error);
       showToast("Batch approval failed.", "error");
@@ -462,7 +481,6 @@ export default function AdminPreorders() {
     }
   };
 
-  /* ── filter ── */
   const filtered = useMemo(() => {
     return orders.filter((o) => {
       // 🟢 Logic: Once approved (step > 0), it should move to Order Management,
@@ -470,51 +488,60 @@ export default function AdminPreorders() {
       // But we check stepFilter first.
       if (stepFilter === "all" && o.step > 0 && !o.cancelled) return false;
 
+      const keyword = search.toLowerCase().trim();
       const matchSearch =
-        o.id.toLowerCase().includes(search.toLowerCase()) ||
-        o.customer.toLowerCase().includes(search.toLowerCase()) ||
-        o.email.toLowerCase().includes(search.toLowerCase());
+        o.id?.toLowerCase().includes(keyword) ||
+        o.customer?.toLowerCase().includes(keyword) ||
+        o.email?.toLowerCase().includes(keyword);
+
       if (!matchSearch) return false;
       if (stepFilter === "all") return true;
       if (stepFilter === "cancelled") return o.cancelled;
       if (stepFilter === "active") return !o.cancelled && o.step < 6;
       if (stepFilter === "done") return !o.cancelled && o.step === 6;
+
       return !o.cancelled && String(o.step) === stepFilter;
     });
   }, [orders, search, stepFilter]);
 
-  /* ── pagination ── */
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
-  const safePage = Math.min(currentPage, Math.max(1, totalPages));
+  const safePage = Math.min(currentPage, Math.max(1, totalPages || 1));
   const paginated = filtered.slice(
     (safePage - 1) * itemsPerPage,
     safePage * itemsPerPage,
   );
 
   const getPagination = () => {
-    if (totalPages <= 7)
+    if (totalPages <= 7) {
       return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+
     const pages = [1];
     if (safePage > 4) pages.push("...");
+
     for (
       let i = Math.max(2, safePage - 1);
       i <= Math.min(totalPages - 1, safePage + 1);
       i++
-    )
+    ) {
       pages.push(i);
+    }
+
     if (safePage < totalPages - 3) pages.push("...");
     pages.push(totalPages);
+
     return pages;
   };
 
-  /* ── advance step ── */
   const handleAdvance = useCallback(
     (id, note) => {
       setOrders((prev) =>
         prev.map((o) => {
           if (o.id !== id) return o;
+
           const nextStep = o.step + 1;
           const histEntry = { step: nextStep, date: fmtDate(), note };
+
           return {
             ...o,
             step: nextStep,
@@ -522,9 +549,10 @@ export default function AdminPreorders() {
           };
         }),
       );
-      // update viewing
+
       setViewing((v) => {
         if (!v || v.id !== id) return v;
+
         const nextStep = v.step + 1;
         return {
           ...v,
@@ -535,24 +563,27 @@ export default function AdminPreorders() {
           ],
         };
       });
-      showToast(
-        `Moved to: ${STEPS[Math.min(orders.find((o) => o.id === id)?.step + 1 || 0, 6)]?.label}`,
-      );
+
+      const currentOrder = orders.find((o) => o.id === id);
+      const nextLabel =
+        STEPS[Math.min((currentOrder?.step ?? 0) + 1, 6)]?.label;
+      showToast(`Moved to: ${nextLabel}`);
     },
     [orders, showToast],
   );
 
-  /* ── cancel ── */
   const handleCancel = useCallback(
     (id) => {
       setOrders((prev) =>
         prev.map((o) => {
           if (o.id !== id) return o;
+
           const histEntry = {
             step: o.step,
             date: fmtDate(),
             note: "Admin cancelled the order.",
           };
+
           return {
             ...o,
             cancelled: true,
@@ -560,8 +591,10 @@ export default function AdminPreorders() {
           };
         }),
       );
+
       setViewing((v) => {
         if (!v || v.id !== id) return v;
+
         return {
           ...v,
           cancelled: true,
@@ -575,6 +608,7 @@ export default function AdminPreorders() {
           ],
         };
       });
+
       showToast("Order cancelled", "error");
     },
     [showToast],
@@ -596,6 +630,7 @@ export default function AdminPreorders() {
             Track and process custom eyeglass production
           </p>
         </div>
+
         <button
           onClick={handleAutoFulfill}
           disabled={isProcessing}
@@ -630,6 +665,7 @@ export default function AdminPreorders() {
               className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 focus:bg-white transition-shadow"
             />
           </div>
+
           <div className="flex items-center gap-2">
             <FiFilter size={13} className="text-gray-400" />
             {activeFilters > 0 && (
@@ -670,10 +706,10 @@ export default function AdminPreorders() {
                 <th className="text-left px-5 py-3.5 font-semibold tracking-wider">
                   Order Date
                 </th>
-
                 <th className="w-16 px-5 py-3.5" />
               </tr>
             </thead>
+
             <tbody className="divide-y divide-gray-50">
               {paginated.length === 0 ? (
                 <tr>
@@ -719,6 +755,7 @@ export default function AdminPreorders() {
               </span>{" "}
               orders
             </p>
+
             {totalPages > 1 && (
               <div className="flex items-center gap-1 select-none">
                 <button
@@ -728,6 +765,7 @@ export default function AdminPreorders() {
                 >
                   ←
                 </button>
+
                 {getPagination().map((page, i) =>
                   page === "..." ? (
                     <span key={i} className="px-2 text-gray-300 text-sm">
@@ -737,13 +775,17 @@ export default function AdminPreorders() {
                     <button
                       key={page}
                       onClick={() => setCurrentPage(page)}
-                      className={`min-w-[34px] px-3 py-1.5 rounded-lg text-sm font-medium
-                        ${safePage === page ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+                      className={`min-w-[34px] px-3 py-1.5 rounded-lg text-sm font-medium ${
+                        safePage === page
+                          ? "bg-blue-600 text-white"
+                          : "text-gray-600 hover:bg-gray-100"
+                      }`}
                     >
                       {page}
                     </button>
                   ),
                 )}
+
                 <button
                   disabled={safePage === totalPages}
                   onClick={() => setCurrentPage((p) => p + 1)}
@@ -766,6 +808,7 @@ export default function AdminPreorders() {
             onClose={() => setViewing(null)}
             onAdvance={handleAdvance}
             onCancel={handleCancel}
+            onRefresh={fetchPreorder}
           />
         )}
       </AnimatePresence>
@@ -776,7 +819,7 @@ export default function AdminPreorders() {
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    DETAIL MODAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-function DetailModal({ order, onClose, onAdvance, onCancel }) {
+function DetailModal({ order, onClose, onAdvance, onCancel, onRefresh }) {
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
 
@@ -789,12 +832,16 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
       return;
     setLoading(true);
     try {
-      // 1. Deduct stock for each item sequentially
       for (const item of order.items) {
         const variantRes = await getStockVariantById(item.variantId);
         const currentStock =
           variantRes?.stockQuantity ?? variantRes?.quantity ?? 0;
         const qtyToDeduct = Number(item.quantity) || 0;
+
+        if (currentStock < qtyToDeduct) {
+          throw new Error(`Not enough stock for ${item.name}`);
+        }
+
         const newQuantity = Math.max(0, currentStock - qtyToDeduct);
 
         console.log(
@@ -803,11 +850,12 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
         await updateStockService(item.variantId, newQuantity);
       }
 
-      // 2. Update order status to PROCESSING
       await updateOrderStatus(order.orderId, "PROCESSING");
 
-      showToast(`Processed successfully!`);
-      setTimeout(() => window.location.reload(), 1500);
+      showToast("Processed successfully!");
+      onClose();
+      onAdvance?.(order.id, "Pre-order approved and moved to processing.");
+      await onRefresh?.();
     } catch (error) {
       console.error("Lỗi xử lý:", error);
       showToast(
@@ -834,6 +882,7 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
           className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col"
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
         >
           {/* Header */}
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-blue-50/30">
@@ -846,6 +895,7 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
                 <p className="text-xs text-gray-500">Order Code: {order.id}</p>
               </div>
             </div>
+
             <button
               onClick={onClose}
               className="p-2 hover:bg-gray-100 rounded-full text-gray-400"
@@ -874,6 +924,7 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
                 <FiPackage size={12} /> Pre-ordered Products
               </p>
+
               {order.items.map((it, idx) => (
                 <div
                   key={idx}
@@ -882,13 +933,19 @@ function DetailModal({ order, onClose, onAdvance, onCancel }) {
                   <img
                     src={it.img}
                     className="w-14 h-14 rounded-lg object-cover border border-gray-100"
+                    alt={it.name}
                   />
+
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-800 text-sm truncate">
                       {it.name}
                     </p>
+
                     <p className="text-xs text-gray-500 font-medium">
-                      Color: {order.color} | Qty: {it.quantity}
+                      {it.color ? `Color: ${it.color}` : "Color: N/A"}
+                      {it.frameSize ? ` | Size: ${it.frameSize}` : ""}
+                      {" | "}
+                      Qty: {it.quantity}
                     </p>
                     <div className="mt-1 flex items-center gap-2">
                       <span
