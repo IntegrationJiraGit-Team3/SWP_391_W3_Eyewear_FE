@@ -71,14 +71,14 @@ function ReturnFormPage() {
   const reasons = [
     {
       value: "Defective/Scratched product",
-      label: "Defective / Scratched product",
+      label: "Sản phẩm bị lỗi/trầy xước",
     },
-    { value: "Wrong product delivered", label: "Wrong product delivered" },
+    { value: "Wrong product delivered", label: "Giao sai sản phẩm" },
     {
       value: "Does not fit / Not suitable",
-      label: "Does not fit / Not suitable",
+      label: "Không vừa / Không phù hợp",
     },
-    { value: "Other reason", label: "Other reason" },
+    { value: "Other reason", label: "Lý do khác" },
   ];
 
   const isReturn = formData.requestType === "RETURN";
@@ -115,36 +115,36 @@ function ReturnFormPage() {
 
   const validateForm = () => {
     if (!orderItemId && !orderId) {
-      setSubmitError("Missing order reference.");
+      setSubmitError("Thiếu thông tin đơn hàng.");
       return false;
     }
 
     if (!formData.reason.trim()) {
-      setSubmitError("Please select a reason.");
+      setSubmitError("Vui lòng chọn lý do.");
       return false;
     }
 
     if (!formData.details.trim()) {
-      setSubmitError("Please enter more details.");
+      setSubmitError("Vui lòng nhập chi tiết lý do.");
       return false;
     }
 
     if (isReturn) {
       if (!formData.bankAccountNumber.trim()) {
-        setSubmitError("Bank account number is required for return refund.");
+        setSubmitError("Vui lòng nhập số tài khoản ngân hàng để hoàn tiền.");
         return false;
       }
       if (!formData.bankName.trim()) {
-        setSubmitError("Bank name is required for return refund.");
+        setSubmitError("Vui lòng nhập tên ngân hàng để hoàn tiền.");
         return false;
       }
       if (!formData.bankAccountHolder.trim()) {
-        setSubmitError("Account holder is required for return refund.");
+        setSubmitError("Vui lòng nhập tên chủ tài khoản để hoàn tiền.");
         return false;
       }
       if (!bankInfoConfirmed) {
         setSubmitError(
-          "Please confirm the bank account information is correct.",
+          "Vui lòng xác nhận thông tin tài khoản ngân hàng chính xác.",
         );
         return false;
       }
@@ -217,12 +217,11 @@ function ReturnFormPage() {
           </div>
 
           <h1 className="text-lg font-bold text-slate-900 mb-2">
-            Return/Exchange is whole-order only
+            Trả hàng/Đổi hàng chỉ áp dụng cho toàn bộ đơn
           </h1>
 
           <p className="text-sm text-slate-500 leading-relaxed mb-6 font-medium">
-            To keep frame + lens (combo) integrity, return/exchange requests are
-            accepted for the whole order only.
+            Để đảm bảo tính đồng bộ giữa gọng và tròng (combo), yêu cầu trả/đổi chỉ áp dụng cho toàn bộ đơn hàng.
           </p>
 
           <div className="grid grid-cols-1 gap-3">
@@ -233,14 +232,14 @@ function ReturnFormPage() {
                 }
                 className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-800 transition-all"
               >
-                Create Whole-Order Request
+                Tạo yêu cầu cho toàn bộ đơn
               </button>
             )}
             <button
               onClick={() => navigate("/my-orders")}
               className="w-full py-3 bg-white text-slate-900 rounded-xl font-bold text-xs uppercase tracking-widest border border-slate-200 hover:bg-slate-50 transition-all"
             >
-              Back to Orders
+              Quay lại đơn hàng
             </button>
           </div>
         </div>

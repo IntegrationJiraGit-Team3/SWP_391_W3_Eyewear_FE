@@ -442,13 +442,13 @@ export default function PrescriptionPage() {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-bold text-white leading-snug">
-                      Buy Frame Only
+                      Chỉ mua gọng kính
                     </h3>
                     <p className="text-[11px] text-stone-400 mt-1 uppercase tracking-wider font-semibold">
-                      No extra lens selected
+                      Không chọn thêm thấu kính
                     </p>
                     <div className="mt-2 text-sm font-black text-white">
-                      Keep original price
+                      Giữ nguyên giá gốc
                     </div>
                   </div>
                 </div>

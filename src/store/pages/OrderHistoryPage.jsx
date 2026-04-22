@@ -116,7 +116,7 @@ const normalizeToken = (value) =>
 function OrderHistoryPage() {
   const [orders, setOrders] = useState([]);
   const [returnRequestMap, setReturnRequestMap] = useState({});
-  const [activeTab, setActiveTab] = useState("All");
+  const [activeTab, setActiveTab] = useState("Tất cả");
 
   const [refundFormOrderId, setRefundFormOrderId] = useState(null);
   const [refundMode, setRefundMode] = useState("AUTO_VNPAY");
@@ -150,7 +150,7 @@ function OrderHistoryPage() {
       return sorted;
     } catch (err) {
       console.error("Load orders error:", err);
-      showToast("Failed to load orders");
+      showToast("Không thể tải đơn hàng");
       return [];
     }
   }, [showToast]);
@@ -248,7 +248,7 @@ function OrderHistoryPage() {
 
   const canCancelOrder = useCallback((effectiveStatus) => {
     const s = String(effectiveStatus || "").toUpperCase();
-    // BE only allows cancelling before shipping.
+    // BE chỉ cho phép hủy trước khi giao hàng.
     return ["PENDING", "PREORDER", "PROCESSING"].includes(s);
   }, []);
 
@@ -256,7 +256,7 @@ function OrderHistoryPage() {
     const effectiveStatus = getEffectiveOrderStatus(order);
 
     if (!canCancelOrder(effectiveStatus)) {
-      showToast("Orders in pending or processing cannot be cancelled");
+      showToast("Đơn hàng đang chờ hoặc đang xử lý không thể hủy");
       return;
     }
 
