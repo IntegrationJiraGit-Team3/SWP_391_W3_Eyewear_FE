@@ -717,17 +717,15 @@ function CheckoutPage() {
                 <div className="flex-1 min-w-0 flex justify-between">
                   <div>
                     <p className="font-medium truncate pr-2">{item.name}</p>
+
                     <p className="text-xs text-stone-400">
                       Qty: {item.quantity} · {item.price.toLocaleString()}₫
                     </p>
-                    {item.isPreorder && (
-                      <p className="text-[10px] text-amber-600 font-bold mt-0.5 tracking-tight uppercase">
-                        Pre-order item
-                      </p>
-                    )}
-                    {item.isLens && !item.isPreorder && (
-                      <p className="text-[10px] text-indigo-500 font-bold mt-0.5 tracking-tight uppercase">
-                        Prescription Order
+
+                    {/* 👉 ADD SIZE HERE */}
+                    {!item.isLens && item.variant?.frameSize && (
+                      <p className="text-[11px] text-stone-400 mt-0.5">
+                        Size: {item.variant.frameSize}
                       </p>
                     )}
                   </div>

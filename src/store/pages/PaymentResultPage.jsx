@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { updatePaymentStatus } from "../services/orderService";
+import {
+  processVnpayReturn,
+  updatePaymentStatus,
+} from "../services/orderService";
 
 function PaymentResultPage() {
   const [searchParams] = useSearchParams();
@@ -22,10 +25,23 @@ function PaymentResultPage() {
     };
 
     const run = async () => {
+      const params = Object.fromEntries(searchParams.entries());
+
       try {
         localStorage.setItem("vnpay:lastResult", JSON.stringify(payload));
       } catch (err) {
         console.error("Store VNPay result failed:", err);
+      }
+
+      // Always forward return params to backend so it can:
+      // - verify signature
+      // - update order payment status
+      // - persist successful Payment records (transaction reference)
+      // - cancel pending payment orders on failures
+      try {
+        await processVnpayReturn(params);
+      } catch (err) {
+        console.error("Process VNPay return on backend failed:", err);
       }
 
       try {
@@ -40,20 +56,30 @@ function PaymentResultPage() {
       if (!isSuccess) return;
 
       try {
+        const orderInfo = searchParams.get("vnp_OrderInfo");
         const pendingContextRaw = localStorage.getItem(
           "vnpay:pendingRemainingPayment",
         );
-        if (!pendingContextRaw) return;
+        const pendingContext = pendingContextRaw
+          ? JSON.parse(pendingContextRaw)
+          : null;
 
-        const pendingContext = JSON.parse(pendingContextRaw);
-        const orderId = pendingContext?.orderId;
-        if (!orderId) return;
+        const orderId = pendingContext?.orderId || orderInfo;
 
-        await updatePaymentStatus(orderId, "PAID_FULL");
+        // Remaining-payment flow expects PAID_FULL. Backend return handler will
+        // typically move PAID -> PAID_FULL when called the second time.
+        // Keep this as a compatibility fallback in case return handler doesn't
+        // update paymentStatus due to environment/config differences.
+        if (pendingContext?.orderId) {
+          await updatePaymentStatus(pendingContext.orderId, "PAID_FULL");
+        }
 
-        redirectTimer = setTimeout(() => {
-          navigate(`/shipping-progress/${orderId}`, { replace: true });
-        }, 1000);
+        const inPopup = !!(window.opener && !window.opener.closed);
+        if (!inPopup && orderId) {
+          redirectTimer = setTimeout(() => {
+            navigate(`/shipping-progress/${orderId}`, { replace: true });
+          }, 1000);
+        }
       } catch (error) {
         console.error("Finalize paid order failed:", error);
       } finally {
@@ -70,7 +96,7 @@ function PaymentResultPage() {
     return () => {
       if (redirectTimer) clearTimeout(redirectTimer);
     };
-  }, [isSuccess, navigate, vnp_ResponseCode, vnp_TransactionNo]);
+  }, [isSuccess, navigate, searchParams, vnp_ResponseCode, vnp_TransactionNo]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

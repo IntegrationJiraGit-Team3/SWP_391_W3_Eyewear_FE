@@ -58,9 +58,15 @@ function ReturnFormPage() {
       }
     };
 
+    // Only allow whole-order (combo) requests.
+    if (orderItemId && !isComboRequest) {
+      setChecking(false);
+      return;
+    }
+
     if (orderItemId) checkExisting();
     else setChecking(false);
-  }, [orderItemId]);
+  }, [orderItemId, isComboRequest]);
 
   const reasons = [
     {
@@ -198,6 +204,46 @@ function ReturnFormPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (orderItemId && !isComboRequest) {
+    return (
+      <div className="min-h-screen bg-[#fcfcfc] pt-24 px-6 pb-16">
+        <div className="max-w-md mx-auto bg-white rounded-2xl p-8 shadow-sm border border-slate-100 text-center">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 bg-amber-50">
+            <FiHelpCircle size={32} className="text-amber-600" />
+          </div>
+
+          <h1 className="text-lg font-bold text-slate-900 mb-2">
+            Return/Exchange is whole-order only
+          </h1>
+
+          <p className="text-sm text-slate-500 leading-relaxed mb-6 font-medium">
+            To keep frame + lens (combo) integrity, return/exchange requests are
+            accepted for the whole order only.
+          </p>
+
+          <div className="grid grid-cols-1 gap-3">
+            {orderId && (
+              <button
+                onClick={() =>
+                  navigate(`/return-request?orderId=${orderId}&combo=true`)
+                }
+                className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-800 transition-all"
+              >
+                Create Whole-Order Request
+              </button>
+            )}
+            <button
+              onClick={() => navigate("/my-orders")}
+              className="w-full py-3 bg-white text-slate-900 rounded-xl font-bold text-xs uppercase tracking-widest border border-slate-200 hover:bg-slate-50 transition-all"
+            >
+              Back to Orders
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
