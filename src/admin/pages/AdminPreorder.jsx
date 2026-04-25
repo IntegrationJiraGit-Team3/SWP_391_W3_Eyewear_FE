@@ -81,7 +81,7 @@ const STEP_COLORS = {
 };
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   HELPERS
+    PRE-ORDER STEPS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 const colorOf = (step) => STEP_COLORS[step.color] || STEP_COLORS.gray;
@@ -847,10 +847,10 @@ function DetailModal({ order, onClose, onAdvance, onCancel, onRefresh }) {
         console.log(
           `Deducting ${qtyToDeduct} from ${currentStock} for ${item.name}. New stock: ${newQuantity}`,
         );
-        await updateStockService(item.variantId, newQuantity);
+        // await updateStockService(item.variantId, newQuantity);
       }
 
-      await updateOrderStatus(order.orderId, "PROCESSING");
+      // await updateOrderStatus(order.orderId, "PROCESSING");
 
       showToast("Processed successfully!");
       onClose();
