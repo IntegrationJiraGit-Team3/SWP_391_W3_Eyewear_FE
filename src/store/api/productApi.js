@@ -4,7 +4,7 @@ export const getAllProductStoreApi = async () => {
   const res = await axiosClient.get("/products");
   return res.data.data;
 };
-
+// API GET PRODUCT BY ID
 export const getProductByIdApi = async (id) => {
   const res = await axiosClient.get(`/products/${id}`);
   return res.data.data;
