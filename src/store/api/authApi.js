@@ -14,6 +14,7 @@ export const loginApi = async (email, password) => {
   localStorage.setItem("token", token);
   return token;
 };
+// API GET USER BY ID
 
 export const getUserById = async (userId) => {
   const res = await axiosClient.get(`/users/${userId}`);

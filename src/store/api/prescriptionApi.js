@@ -5,7 +5,7 @@ export const getMyPrescriptionsApi = () => {
   return axiosClient.get("/prescriptions");
 };
 
-// Lưu đơn thuốc mới
+// Tạo đơn thuốc mới
 export const savePrescriptionApi = (data) => {
   return axiosClient.post("/prescriptions", data);
 };

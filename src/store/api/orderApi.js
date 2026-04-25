@@ -7,11 +7,11 @@ export const checkoutOrderApi = (payload) => {
 export const historyOrderApi = () => {
   return axiosClient.get("/orders/my");
 };
-
+// Cancel order (only if it's still pending and not paid yet)
 export const cancelOrderApi = (orderId) => {
   return axiosClient.patch(`/orders/${orderId}/status?status=CANCELED`);
 };
-
+// Cancel pending payment (before user completes payment)
 export const cancelPendingPaymentApi = (orderId) => {
   return axiosClient.patch(`/orders/${orderId}/cancel-payment`);
 };
