@@ -7,7 +7,7 @@ function OrderFeedbackPage() {
   const [hover, setHover] = useState(0);
   const [feedback, setFeedback] = useState("");
   const { showToast } = useToast();
-
+  // ✅ HÀM XỬ LÝ SUBMIT CHUNG CHO CẢ RATING VÀ FEEDBACK
   const handleSubmit = (e) => {
     e.preventDefault();
     showToast(`Thank you for your ${rating} star rating!`);

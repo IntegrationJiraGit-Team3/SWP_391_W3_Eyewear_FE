@@ -11,7 +11,7 @@ export default function FrameSelectionPage() {
 
   useEffect(() => {
     let cancelled = false;
-
+    // ✅ HÀM LOAD GIỎ HÀNG CHUNG CHO CẢ USER VÀ GUEST
     const fetchFrames = async () => {
       try {
         setLoading(true);
