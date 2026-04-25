@@ -17,7 +17,6 @@ import {
   FiCheck,
 } from "react-icons/fi";
 
-//mock data thay bằng api sau này
 import { products } from "../data/shopMock";
 
 /* ===== DATA ===== */
@@ -72,7 +71,7 @@ const services = [
 function LoginModal({ isOpen, onClose, productName }) {
   const navigate = useNavigate();
   const location = useLocation();
-
+  // ✅ Đóng modal khi nhấn Esc
   useEffect(() => {
     document.body.style.overflow = isOpen ? "hidden" : "";
     return () => {

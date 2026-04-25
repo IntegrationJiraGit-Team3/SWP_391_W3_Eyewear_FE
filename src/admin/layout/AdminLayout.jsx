@@ -5,7 +5,7 @@ import AdminTopHeader from "../components/AdminTopHeader";
 import "../styles/admin-font.css";
 
 function AdminLayout() {
-  // ✅ Mặc định thu nhỏ
+  // ✅ Sử dụng useState để quản lý trạng thái collapsed
   const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
@@ -14,24 +14,24 @@ function AdminLayout() {
   }, []);
 
   return (
-      <div className="flex h-screen bg-gray-100">
-        {/* Sidebar */}
-        <AdminSidebar collapsed={collapsed} />
+    <div className="flex h-screen bg-gray-100">
+      {/* Sidebar */}
+      <AdminSidebar collapsed={collapsed} />
 
-        {/* Right side */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <AdminTopHeader
-            collapsed={collapsed}
-            onToggleSidebar={
-              () => setCollapsed((prev) => !prev) // ✅ toggle chuẩn
-            }
-          />
+      {/* Right side */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <AdminTopHeader
+          collapsed={collapsed}
+          onToggleSidebar={
+            () => setCollapsed((prev) => !prev) // ✅ toggle chuẩn
+          }
+        />
 
-          <div className="flex-1 overflow-y-auto bg-gray-100">
-            <Outlet />
-          </div>
+        <div className="flex-1 overflow-y-auto bg-gray-100">
+          <Outlet />
         </div>
       </div>
+    </div>
   );
 }
 
