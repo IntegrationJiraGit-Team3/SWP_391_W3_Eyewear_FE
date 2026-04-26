@@ -87,23 +87,23 @@ function AdminReportsDashboard({ type = "overview" }) {
     return processedOrders > 0 ? processedOrders : fallback;
   }, [analytics, processedOrders, refundedOrders]);
 
-  const kpiRates = useMemo(() => {
-    const completed = toNumber(analytics?.completedOrders);
-    const cancelled = toNumber(analytics?.cancelledOrders);
+  // const kpiRates = useMemo(() => {
+  //   const completed = toNumber(analytics?.completedOrders);
+  //   const cancelled = toNumber(analytics?.cancelledOrders);
 
-    const totalOrders = toNumber(analytics?.totalOrders);
-    if (totalOrders <= 0) {
-      return { completionRate: 0, refundRate: 0, cancelRate: 0 };
-    }
+  //   const totalOrders = toNumber(analytics?.totalOrders);
+  //   if (totalOrders <= 0) {
+  //     return { completionRate: 0, refundRate: 0, cancelRate: 0 };
+  //   }
 
-    const refundRate = Number(
-      ((refundedOrders / totalOrders) * 100).toFixed(1),
-    );
-    const completionRate = Number(((completed / totalOrders) * 100).toFixed(1));
-    const cancelRate = Number(((cancelled / totalOrders) * 100).toFixed(1));
+  //   const refundRate = Number(
+  //     ((refundedOrders / totalOrders) * 100).toFixed(1),
+  //   );
+  //   const completionRate = Number(((completed / totalOrders) * 100).toFixed(1));
+  //   const cancelRate = Number(((cancelled / totalOrders) * 100).toFixed(1));
 
-    return { completionRate, refundRate, cancelRate };
-  }, [analytics, processedOrders, refundedOrders]);
+  //   return { completionRate, refundRate, cancelRate };
+  // }, [analytics, processedOrders, refundedOrders]);
 
   const revenueGroup = useMemo(() => {
     const completedRevenue = Math.max(
@@ -233,24 +233,24 @@ function AdminReportsDashboard({ type = "overview" }) {
     return applyPercentages(baseRows, "count", "percent");
   }, [analytics]);
 
-  const orderOutcomeGroup = useMemo(() => {
-    const rows = [
-      {
-        label: "Completed",
-        value: toNumber(analytics?.completedOrders),
-      },
-      {
-        label: "Refunded",
-        value: refundedOrders,
-      },
-      {
-        label: "Cancelled",
-        value: toNumber(analytics?.cancelledOrders),
-      },
-    ];
+  // const orderOutcomeGroup = useMemo(() => {
+  //   const rows = [
+  //     {
+  //       label: "Completed",
+  //       value: toNumber(analytics?.completedOrders),
+  //     },
+  //     {
+  //       label: "Refunded",
+  //       value: refundedOrders,
+  //     },
+  //     {
+  //       label: "Cancelled",
+  //       value: toNumber(analytics?.cancelledOrders),
+  //     },
+  //   ];
 
-    return applyPercentages(rows, "value", "share");
-  }, [analytics]);
+  //   return applyPercentages(rows, "value", "share");
+  // }, [analytics]);
 
   const orderStatusShares = useMemo(() => {
     const map = Object.create(null);
@@ -301,59 +301,38 @@ function AdminReportsDashboard({ type = "overview" }) {
         icon: FiUsers,
         color: "bg-violet-100 text-violet-600",
       },
-      {
-        title: "Tỉ lệ hoàn trả",
-        value: `${kpiRates.refundRate.toFixed(1)}%`,
-        sub: "Refunded / Tổng đơn",
-        icon: FiRefreshCcw,
-        color: "bg-amber-100 text-amber-600",
-      },
-      {
-        title: "Tỉ lệ hoàn tất",
-        value: `${kpiRates.completionRate.toFixed(1)}%`,
-        sub: "Completed / Tổng đơn",
-        icon: FiTrendingUp,
-        color: "bg-sky-100 text-sky-600",
-      },
-      {
-        title: "Tỉ lệ hủy đơn",
-        value: `${kpiRates.cancelRate.toFixed(1)}%`,
-        sub: "Cancelled / Tổng đơn",
-        icon: FiXCircle,
-        color: "bg-red-100 text-red-600",
-      },
     ];
-  }, [analytics, grossRevenue, netRevenue, kpiRates]);
+  }, [analytics, grossRevenue, netRevenue]);
 
-  const orderOutcomeDonutOptions = useMemo(
-    () => ({
-      chart: {
-        type: "donut",
-        toolbar: { show: false },
-        fontFamily: "Inter, system-ui, sans-serif",
-      },
-      labels: orderOutcomeGroup.map((item) => item.label),
-      legend: { position: "bottom" },
-      plotOptions: { pie: { donut: { size: "62%" } } },
-      colors: ["#22c55e", "#f59e0b", "#ef4444"],
-      dataLabels: {
-        formatter: (_, options) =>
-          `${orderOutcomeGroup[options.seriesIndex]?.share || 0}%`,
-      },
-      tooltip: {
-        y: {
-          formatter: (value) =>
-            `${Number(value || 0).toLocaleString("vi-VN")} đơn`,
-        },
-      },
-    }),
-    [orderOutcomeGroup],
-  );
+  // const orderOutcomeDonutOptions = useMemo(
+  //   () => ({
+  //     chart: {
+  //       type: "donut",
+  //       toolbar: { show: false },
+  //       fontFamily: "Inter, system-ui, sans-serif",
+  //     },
+  //     labels: orderOutcomeGroup.map((item) => item.label),
+  //     legend: { position: "bottom" },
+  //     plotOptions: { pie: { donut: { size: "62%" } } },
+  //     colors: ["#22c55e", "#f59e0b", "#ef4444"],
+  //     dataLabels: {
+  //       formatter: (_, options) =>
+  //         `${orderOutcomeGroup[options.seriesIndex]?.share || 0}%`,
+  //     },
+  //     tooltip: {
+  //       y: {
+  //         formatter: (value) =>
+  //           `${Number(value || 0).toLocaleString("vi-VN")} đơn`,
+  //       },
+  //     },
+  //   }),
+  //   [orderOutcomeGroup],
+  // );
 
-  const orderOutcomeDonutSeries = useMemo(
-    () => orderOutcomeGroup.map((item) => Math.max(item.value, 0)),
-    [orderOutcomeGroup],
-  );
+  // const orderOutcomeDonutSeries = useMemo(
+  //   () => orderOutcomeGroup.map((item) => Math.max(item.value, 0)),
+  //   [orderOutcomeGroup],
+  // );
 
   const revenueDonutOptions = useMemo(
     () => ({
@@ -1219,34 +1198,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                 </div>
               )}
             </DashboardCard>
-
-            <DashboardCard
-              delay={0.28}
-              title="Kết quả đơn hàng"
-              description="Tỉ trọng các trạng thái cuối: Complete, Refund, Cancel trong kỳ."
-              icon={<FiShoppingBag className="text-emerald-500" size={20} />}
-            >
-              {loading ? (
-                <LoadingBlock />
-              ) : (
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-                  <Chart
-                    options={orderOutcomeDonutOptions}
-                    series={orderOutcomeDonutSeries}
-                    type="donut"
-                    height={340}
-                  />
-                  <SimpleTable
-                    headers={["Kết quả", "Số lượng", "Tỉ trọng"]}
-                    rows={orderOutcomeGroup.map((item) => [
-                      item.label,
-                      formatCompactNumber(item.value),
-                      `${item.share}%`,
-                    ])}
-                  />
-                </div>
-              )}
-            </DashboardCard>
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-5">
@@ -1557,43 +1508,27 @@ function AdminReportsDashboard({ type = "overview" }) {
 
                 <div className="space-y-4">
                   <div className="text-sm font-semibold text-slate-700">
-                    Bảng gọng (tối đa 8)
+                    Bảng gọng
                   </div>
                   <SimpleTable
-                    headers={[
-                      "Gọng",
-                      "Số lượng bán",
-                      "Doanh thu",
-                      "Tỉ trọng SL",
-                      "Tỉ trọng DT",
-                    ]}
+                    headers={["Gọng", "Số lượng bán", "Tỉ trọng SL"]}
                     rows={frameQuantityTable.map((item) => [
                       item.name,
                       formatCompactNumber(item.quantitySold),
-                      formatCurrency(item.revenue),
                       `${item.shareQty}%`,
-                      `${item.shareRev}%`,
                     ])}
                   />
 
                   <div className="pt-4 border-t border-slate-100" />
                   <div className="text-sm font-semibold text-slate-700">
-                    Bảng lens (tối đa 8)
+                    Bảng lens
                   </div>
                   <SimpleTable
-                    headers={[
-                      "Lens",
-                      "Số lượng bán",
-                      "Doanh thu",
-                      "Tỉ trọng SL",
-                      "Tỉ trọng DT",
-                    ]}
+                    headers={["Lens", "Số lượng bán", "Tỉ trọng SL"]}
                     rows={lensQuantityTable.map((item) => [
                       item.name,
                       formatCompactNumber(item.quantitySold),
-                      formatCurrency(item.revenue),
                       `${item.shareQty}%`,
-                      `${item.shareRev}%`,
                     ])}
                   />
                 </div>
@@ -1662,7 +1597,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                       "Refund",
                       "Đang xử lý",
                       "Tổng",
-                      "Tỉ trọng SL",
                       "Tỉ trọng DT",
                     ]}
                     rows={frameRevenueTable.map((item) => [
@@ -1671,7 +1605,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                       formatCurrency(item.refunded),
                       formatCurrency(item.pending),
                       formatCurrency(item.total),
-                      `${item.shareQty}%`,
                       `${item.shareRev}%`,
                     ])}
                   />
@@ -1687,7 +1620,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                       "Refund",
                       "Đang xử lý",
                       "Tổng",
-                      "Tỉ trọng SL",
                       "Tỉ trọng DT",
                     ]}
                     rows={lensRevenueTable.map((item) => [
@@ -1696,7 +1628,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                       formatCurrency(item.refunded),
                       formatCurrency(item.pending),
                       formatCurrency(item.total),
-                      `${item.shareQty}%`,
                       `${item.shareRev}%`,
                     ])}
                   />

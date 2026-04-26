@@ -215,14 +215,19 @@ function ViewOrderDetailsModal({
 
   if (!order) return null;
 
-  const hasPrescription = (order.orderItems || []).some(
-    (item) =>
-      item.prescription ||
-      item.fulfillmentType === "PRESCRIPTION" ||
-      item.itemType === "PRESCRIPTION" ||
-      item.sphLeft != null ||
-      item.sphRight != null,
-  );
+  const hasPrescription = (order.orderItems || []).some((item) => {
+    const rx = item.prescription || item;
+    return (
+      rx.sphLeft != null ||
+      rx.sphRight != null ||
+      rx.cylLeft != null ||
+      rx.cylRight != null ||
+      rx.axisLeft != null ||
+      rx.axisRight != null ||
+      rx.addLeft != null ||
+      rx.addRight != null
+    );
+  });
 
   const handleSaveShipment = async () => {
     try {

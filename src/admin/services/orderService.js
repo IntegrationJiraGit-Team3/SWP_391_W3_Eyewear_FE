@@ -62,18 +62,24 @@ const resolveRemainingPaymentStage = (order) => {
 // Hàm kiểm tra đơn có toa thuốc hay không (Broad check)
 const checkIfHasPrescription = (items = []) => {
   return items.some((item) => {
+    const rx = item.prescription || item;
     // 1. Flag or Type
     if (
       item.itemType === "PRESCRIPTION" ||
-      item.fulfillmentType === "PRESCRIPTION" ||
-      item.isLens
+      item.fulfillmentType === "PRESCRIPTION"
     )
       return true;
-    // 2. Object link
-    if (item.prescription != null) return true;
-    // 3. Raw parameters (OD/OS) lồng hoặc phẳng
-    const rx = item.prescription || item;
-    return rx.sphLeft != null || rx.sphRight != null || rx.lensOptionId != null;
+    // 2. Raw parameters (OD/OS) lồng hoặc phẳng
+    return (
+      rx.sphLeft != null ||
+      rx.sphRight != null ||
+      rx.cylLeft != null ||
+      rx.cylRight != null ||
+      rx.axisLeft != null ||
+      rx.axisRight != null ||
+      rx.addLeft != null ||
+      rx.addRight != null
+    );
   });
 };
 

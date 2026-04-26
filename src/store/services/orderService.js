@@ -133,7 +133,7 @@ export const getMyOrders = async () => {
     orderDateMs: order.orderDate ? new Date(order.orderDate).getTime() : 0,
     date: new Date(order.orderDate).toLocaleDateString("en-US"),
     status: mapStatus(resolveDisplayStatus(order)),
-    total: Number(order.finalPrice || 0),
+    total: Number(order.finalPrice ?? order.totalPrice ?? 0),
     paymentStatus: order.paymentStatus,
     paymentMethod: order.paymentMethod,
     refundStatus: normalizeRefundStatus(order.refundStatus),
@@ -217,10 +217,10 @@ export const getOrderDetails = async (id) => {
       image: item.imageUrl,
       total: Number(item.quantity || 0) * Number(item.unitPrice || 0),
     })),
-    subTotal: Number(order.totalPrice || 0),
-    shippingFee: Number(order.shippingFee || 0),
-    discount: Number(order.voucherDiscount || 0),
-    finalTotal: Number(order.finalPrice || 0),
+    subTotal: Number(order.totalPrice ?? 0),
+    shippingFee: Number(order.shippingFee ?? 0),
+    discount: Number(order.voucherDiscount ?? 0),
+    finalTotal: Number(order.finalPrice ?? order.totalPrice ?? 0),
   };
 };
 

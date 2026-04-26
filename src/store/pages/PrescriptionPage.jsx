@@ -248,11 +248,29 @@ export default function PrescriptionPage() {
   const savePreorderFlag = (variant) => {
     if ((variant?.stockQuantity || 0) !== 0) return;
 
+    // Kept for compatibility with local-cart flow. Preorder is stored on item payload.
+  };
+
+  const handleBuyFrameOnly = async () => {
+    const variant = getSelectedFrameVariant();
+
+    if (!variant?.variantId) {
+      showToast("KhA'ng tAªm th §y bi §¨n th ¯Ÿ c ¯a g ¯?ng kA-nh.");
+      return;
+    }
+
+    const parentId = Date.now();
+    const frameItem = buildFrameItem(variant, parentId);
+
+    setSubmitting(true);
+    try {
+      saveToLocalCart([frameItem]);
+      savePreorderFlag(variant);
+
       if (localStorage.getItem("token")) {
-        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
-        const payload = {
-          productId,
-          variantId,
+        await addToCartApi({
+          productId: frameItem.productId,
+          variantId: frameItem.variantId,
           quantity: quantityFromUrl,
           isLens: false,
           isPreorder: frameItem.isPreorder,
@@ -294,21 +312,9 @@ export default function PrescriptionPage() {
       savePreorderFlag(lensVariant);
 
       if (localStorage.getItem("token")) {
-        if (form.savePrescription) {
-          try {
-            const res = await saveUserPrescription(prescriptionData);
-            console.log(res);
-          } catch (e) {
-            console.error("Failed to save prescription", e);
-          }
-        }
-
-        const isOutOfStock = variant?.stockQuantity === 0;
-        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
-
-        const framePayload = {
-          productId: productId,
-          variantId: variantId,
+        await addToCartApi({
+          productId: frameItem.productId,
+          variantId: frameItem.variantId,
           quantity: quantityFromUrl,
           isLens: false,
           isPreorder: frameItem.isPreorder,
