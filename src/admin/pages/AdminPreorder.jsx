@@ -176,7 +176,7 @@ const PreorderRow = memo(({ order, checkStock, onFastApprove }) => {
 
       <td className="px-5 py-4">
         <span
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${order.allInStock ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${order.allInStock ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}
         >
           <span
             className={`w-1.5 h-1.5 rounded-full ${order.allInStock ? "bg-green-500" : "bg-amber-400"}`}
@@ -193,7 +193,7 @@ const PreorderRow = memo(({ order, checkStock, onFastApprove }) => {
           </span>
         ) : (
           <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
               order.step === 6
                 ? "bg-green-50 text-green-700 border-green-200"
                 : order.step === 0
@@ -338,7 +338,6 @@ export default function AdminPreorders() {
             }),
           );
 
-          // Determine overall stock status for the order
           const allInStock = itemsWithStock.every(
             (it) => it.currentStock >= it.quantity,
           );
@@ -364,7 +363,7 @@ export default function AdminPreorders() {
         }),
       );
 
-      setOrders(mapped.sort((a, b) => a.rawDate - b.rawDate));
+      setOrders(mapped.sort((a, b) => b.rawDate - a.rawDate));
     } catch (error) {
       console.error(error);
       showToast("Failed to load pre-orders.", "error");
@@ -414,18 +413,37 @@ export default function AdminPreorders() {
       !window.confirm(
         `Approve order ${order.id} and deduct stock for all items immediately?`,
       )
-    )
+    ) {
       return;
+    }
+
     setIsProcessing(true);
     try {
-      await approvePreorderService(order.orderId);
-      showToast(`Order ${order.id} approved successfully!`);
-      setTimeout(() => window.location.reload(), 1000);
+      for (const item of order.items) {
+        const variantRes = await getStockVariantById(item.variantId);
+        const currentStock =
+          variantRes?.stockQuantity ?? variantRes?.quantity ?? 0;
+        const qtyToDeduct = Number(item.quantity) || 0;
+
+        if (currentStock < qtyToDeduct) {
+          throw new Error(`Not enough stock for ${item.name}`);
+        }
+
+        const newQuantity = Math.max(0, currentStock - qtyToDeduct);
+        await updateStockService(item.variantId, newQuantity);
+      }
+
+      await updateOrderStatus(order.orderId, "PROCESSING");
+
+      showToast(`Order ${order.id} approved and items deducted!`);
+      setViewing(null);
+
+      await fetchPreorder();
     } catch (error) {
       console.error(error);
       showToast(
-        error?.response?.data?.message ||
-          error?.response?.data?.error ||
+        error.response?.data?.message ||
+          error.message ||
           "Failed to approve order.",
         "error",
       );
@@ -449,24 +467,69 @@ export default function AdminPreorders() {
 
     const sorted = [...candidates].sort((a, b) => a.rawDate - b.rawDate);
 
+    const variantPool = {};
+    const approvedTasks = [];
+
+    for (const order of sorted) {
+      let canFulfillTotal = true;
+      const groupTasks = [];
+
+      for (const item of order.items) {
+        if (variantPool[item.variantId] === undefined) {
+          variantPool[item.variantId] = Number(item.currentStock) || 0;
+        }
+
+        if (variantPool[item.variantId] >= item.quantity) {
+          groupTasks.push({
+            variantId: item.variantId,
+            newQuantity: variantPool[item.variantId] - item.quantity,
+            quantity: item.quantity,
+          });
+        } else {
+          canFulfillTotal = false;
+          break;
+        }
+      }
+
+      if (canFulfillTotal) {
+        groupTasks.forEach((gt) => {
+          variantPool[gt.variantId] -= gt.quantity;
+        });
+
+        approvedTasks.push({
+          orderId: order.orderId,
+          code: order.id,
+          stockUpdates: groupTasks,
+        });
+      }
+    }
+
+    if (approvedTasks.length === 0) {
+      showToast(
+        "Aggregate inventory limit reached. No more complete orders can be fulfilled.",
+        "info",
+      );
+      return;
+    }
+
     if (
       !window.confirm(
-        `Found ${sorted.length} orders that can be fully satisfied. Approve them all now?`,
+        `Found ${approvedTasks.length} orders that can be fully satisfied. Approve them all now?`,
       )
-    )
+    ) {
       return;
+    }
 
     setIsProcessing(true);
     let count = 0;
 
     try {
-      for (const order of sorted) {
-        try {
-          await approvePreorderService(order.orderId);
-          count++;
-        } catch (error) {
-          console.error(`Approve preorder failed for ${order.orderId}:`, error);
+      for (const task of approvedTasks) {
+        for (const update of task.stockUpdates) {
+          await updateStockService(update.variantId, update.newQuantity);
         }
+        await updateOrderStatus(task.orderId, "PROCESSING");
+        count++;
       }
 
       showToast(`Batch approved ${count} orders!`);
@@ -483,9 +546,6 @@ export default function AdminPreorders() {
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
-      // 🟢 Logic: Once approved (step > 0), it should move to Order Management,
-      // so we filter it out if we just want to see "Waiting for Approval" items.
-      // But we check stepFilter first.
       if (stepFilter === "all" && o.step > 0 && !o.cancelled) return false;
 
       const keyword = search.toLowerCase().trim();
@@ -828,8 +888,10 @@ function DetailModal({ order, onClose, onAdvance, onCancel, onRefresh }) {
       !window.confirm(
         "Approve this pre-order and deduct inventory for ALL items?",
       )
-    )
+    ) {
       return;
+    }
+
     setLoading(true);
     try {
       for (const item of order.items) {
@@ -847,10 +909,11 @@ function DetailModal({ order, onClose, onAdvance, onCancel, onRefresh }) {
         console.log(
           `Deducting ${qtyToDeduct} from ${currentStock} for ${item.name}. New stock: ${newQuantity}`,
         );
-        // await updateStockService(item.variantId, newQuantity);
+
+        await updateStockService(item.variantId, newQuantity);
       }
 
-      // await updateOrderStatus(order.orderId, "PROCESSING");
+      await updateOrderStatus(order.orderId, "PROCESSING");
 
       showToast("Processed successfully!");
       onClose();
@@ -947,12 +1010,14 @@ function DetailModal({ order, onClose, onAdvance, onCancel, onRefresh }) {
                       {" | "}
                       Qty: {it.quantity}
                     </p>
-                    <div className="mt-1 flex items-center gap-2">
+
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${it.currentStock >= it.quantity ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}
                       >
                         In stock: {it.currentStock}
                       </span>
+
                       {it.prescription && (
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${it.prescription.status ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-purple-50 text-purple-700 border border-purple-200 animate-pulse"}`}
@@ -974,7 +1039,7 @@ function DetailModal({ order, onClose, onAdvance, onCancel, onRefresh }) {
             </div>
 
             <div
-              className={`rounded-xl p-4 flex gap-3 ${order.hasPrescription && !order.prescriptionStatus ? "bg-purple-50 border-purple-200" : "bg-amber-50 border-amber-200"}`}
+              className={`rounded-xl p-4 flex gap-3 border ${order.hasPrescription && !order.prescriptionStatus ? "bg-purple-50 border-purple-200" : "bg-amber-50 border-amber-200"}`}
             >
               {order.hasPrescription && !order.prescriptionStatus ? (
                 <FiFileText
@@ -987,6 +1052,7 @@ function DetailModal({ order, onClose, onAdvance, onCancel, onRefresh }) {
                   size={16}
                 />
               )}
+
               <div
                 className={`text-xs leading-relaxed ${order.hasPrescription && !order.prescriptionStatus ? "text-purple-800" : "text-stone-800"}`}
               >

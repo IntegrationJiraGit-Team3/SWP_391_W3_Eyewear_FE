@@ -116,8 +116,8 @@ const normalizeToken = (value) =>
 function OrderHistoryPage() {
   const [orders, setOrders] = useState([]);
   const [returnRequestMap, setReturnRequestMap] = useState({});
-  const [activeTab, setActiveTab] = useState("Tất cả");
-
+  const [activeTab, setActiveTab] = useState("All");
+  const [refreshing, setRefreshing] = useState(false);
   const [refundFormOrderId, setRefundFormOrderId] = useState(null);
   const [refundMode, setRefundMode] = useState("AUTO_VNPAY");
   const [refundForm, setRefundForm] = useState({
@@ -150,7 +150,7 @@ function OrderHistoryPage() {
       return sorted;
     } catch (err) {
       console.error("Load orders error:", err);
-      showToast("Không thể tải đơn hàng");
+      showToast("Failed to load orders");
       return [];
     }
   }, [showToast]);
@@ -248,7 +248,7 @@ function OrderHistoryPage() {
 
   const canCancelOrder = useCallback((effectiveStatus) => {
     const s = String(effectiveStatus || "").toUpperCase();
-    // BE chỉ cho phép hủy trước khi giao hàng.
+    // BE only allows cancelling before shipping.
     return ["PENDING", "PREORDER", "PROCESSING"].includes(s);
   }, []);
 
@@ -256,7 +256,7 @@ function OrderHistoryPage() {
     const effectiveStatus = getEffectiveOrderStatus(order);
 
     if (!canCancelOrder(effectiveStatus)) {
-      showToast("Đơn hàng đang chờ hoặc đang xử lý không thể hủy");
+      showToast("Orders in pending or processing cannot be cancelled");
       return;
     }
 
@@ -385,11 +385,30 @@ function OrderHistoryPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-12">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">My Orders</h1>
-        <p className="text-gray-500 mt-2">
-          Track orders, view status, and manage your purchases.
-        </p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">My Orders</h1>
+          <p className="text-gray-500 mt-2">
+            Track orders, view status, and manage your purchases.
+          </p>
+        </div>
+
+        <button
+          onClick={async () => {
+            try {
+              setRefreshing(true);
+              const data = await loadOrders();
+              await loadReturnRequests(data || []);
+            } finally {
+              setRefreshing(false);
+            }
+          }}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm font-semibold disabled:opacity-60"
+        >
+          <span className={refreshing ? "animate-spin" : ""}>🔄</span>
+          {refreshing ? "Refreshing..." : "Refresh"}
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-3 mb-8">

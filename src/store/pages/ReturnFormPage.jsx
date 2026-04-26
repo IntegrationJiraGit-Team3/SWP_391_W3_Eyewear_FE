@@ -217,11 +217,12 @@ function ReturnFormPage() {
           </div>
 
           <h1 className="text-lg font-bold text-slate-900 mb-2">
-            Trả hàng/Đổi hàng chỉ áp dụng cho toàn bộ đơn
+            Return/Exchange is whole-order only
           </h1>
 
           <p className="text-sm text-slate-500 leading-relaxed mb-6 font-medium">
-            Để đảm bảo tính đồng bộ giữa gọng và tròng (combo), yêu cầu trả/đổi chỉ áp dụng cho toàn bộ đơn hàng.
+            To keep frame + lens (combo) integrity, return/exchange requests are
+            accepted for the whole order only.
           </p>
 
           <div className="grid grid-cols-1 gap-3">
@@ -232,14 +233,14 @@ function ReturnFormPage() {
                 }
                 className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-800 transition-all"
               >
-                Tạo yêu cầu cho toàn bộ đơn
+                Create Whole-Order Request
               </button>
             )}
             <button
               onClick={() => navigate("/my-orders")}
               className="w-full py-3 bg-white text-slate-900 rounded-xl font-bold text-xs uppercase tracking-widest border border-slate-200 hover:bg-slate-50 transition-all"
             >
-              Quay lại đơn hàng
+              Back to Orders
             </button>
           </div>
         </div>

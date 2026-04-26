@@ -248,11 +248,35 @@ export default function PrescriptionPage() {
   const savePreorderFlag = (variant) => {
     if ((variant?.stockQuantity || 0) !== 0) return;
 
+    try {
+      const preorders =
+        JSON.parse(localStorage.getItem("frontend_preorders")) || {};
+      preorders[variant.variantId] = true;
+      localStorage.setItem("frontend_preorders", JSON.stringify(preorders));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleBuyFrameOnly = async () => {
+    const variant = getSelectedFrameVariant();
+    if (!variant?.variantId) {
+      showToast("Không tìm thấy biến thể của gọng kính.");
+      return;
+    }
+
+    const parentId = Date.now();
+    const frameItem = buildFrameItem(variant, parentId);
+
+    setSubmitting(true);
+    try {
+      saveToLocalCart([frameItem]);
+      savePreorderFlag(variant);
+
       if (localStorage.getItem("token")) {
-        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
-        const payload = {
-          productId,
-          variantId,
+        await addToCartApi({
+          productId: frameItem.productId,
+          variantId: frameItem.variantId,
           quantity: quantityFromUrl,
           isLens: false,
           isPreorder: frameItem.isPreorder,
@@ -294,21 +318,9 @@ export default function PrescriptionPage() {
       savePreorderFlag(lensVariant);
 
       if (localStorage.getItem("token")) {
-        if (form.savePrescription) {
-          try {
-            const res = await saveUserPrescription(prescriptionData);
-            console.log(res);
-          } catch (e) {
-            console.error("Failed to save prescription", e);
-          }
-        }
-
-        const isOutOfStock = variant?.stockQuantity === 0;
-        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
-
-        const framePayload = {
-          productId: productId,
-          variantId: variantId,
+        await addToCartApi({
+          productId: frameItem.productId,
+          variantId: frameItem.variantId,
           quantity: quantityFromUrl,
           isLens: false,
           isPreorder: frameItem.isPreorder,
@@ -442,13 +454,13 @@ export default function PrescriptionPage() {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-bold text-white leading-snug">
-                      Chỉ mua gọng kính
+                      Buy Frame Only
                     </h3>
                     <p className="text-[11px] text-stone-400 mt-1 uppercase tracking-wider font-semibold">
-                      Không chọn thêm thấu kính
+                      No extra lens selected
                     </p>
                     <div className="mt-2 text-sm font-black text-white">
-                      Giữ nguyên giá gốc
+                      Keep original price
                     </div>
                   </div>
                 </div>

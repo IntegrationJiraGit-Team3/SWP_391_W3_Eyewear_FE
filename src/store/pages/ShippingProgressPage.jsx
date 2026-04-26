@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   FiChevronLeft,
@@ -9,7 +9,6 @@ import {
   FiMapPin,
   FiPhone,
   FiCreditCard,
-  FiFileText,
   FiCheckCircle,
   FiRefreshCw,
   FiXCircle,
@@ -24,6 +23,7 @@ import { getShipmentByOrder } from "../services/shipmentService";
 import { createVNPayPayment } from "../services/checkoutService";
 import { useToast } from "../../context/ToastContext";
 import { requestVnpayRefundApi } from "../api/orderApi";
+
 const getOrderStep = (status) => {
   const s = String(status || "").toUpperCase();
   if (s === "PENDING" || s === "PREORDER") return 0;
@@ -49,9 +49,60 @@ const resolveNumericOrderId = (order, routeId) => {
     .map((v) => String(v ?? "").trim())
     .filter(Boolean);
 
-  // Prefer explicit numeric orderId, then numeric route param.
   const numericCandidates = candidates.filter(isNumericId);
   return numericCandidates[0] || null;
+};
+
+const CITY_DISTANCE_MAP = {
+  "ho chi minh": 1,
+  hcm: 1,
+  "tp hcm": 1,
+  tphcm: 1,
+  "ho chi minh city": 1,
+  "binh duong": 5,
+  "dong nai": 6,
+  "ba ria vung tau": 7,
+  "long an": 8,
+  "tien giang": 9,
+  "vinh long": 10,
+  "can tho": 12,
+  "an giang": 13,
+  "soc trang": 14,
+  "bac lieu": 15,
+  "ca mau": 16,
+  "kien giang": 18,
+  "tra vinh": 11,
+};
+
+const normalizeLocation = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0111/g, "d")
+    .replace(/\u0110/g, "D")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^tp\s+/, "");
+
+const estimateDeliveredDate = (order, shipment) => {
+  if (shipment?.deliveredDate) return shipment.deliveredDate;
+
+  const baseDate = shipment?.shippedDate;
+  if (!baseDate) return "Not delivered yet";
+
+  const address = String(order?.address || "");
+  const city = address.includes(",") ? address.split(",").at(-1)?.trim() : "";
+  const distance = CITY_DISTANCE_MAP[normalizeLocation(city)];
+  const transitDays =
+    typeof distance === "number" ? (distance < 10 ? 3 : 5) : 3;
+
+  const estimated = new Date(baseDate);
+  if (Number.isNaN(estimated.getTime())) return "Not delivered yet";
+
+  estimated.setDate(estimated.getDate() + transitDays);
+  return estimated.toISOString().slice(0, 10);
 };
 
 function ShippingProgressPage() {
@@ -72,6 +123,12 @@ function ShippingProgressPage() {
   });
   const [refundMode, setRefundMode] = useState("AUTO_VNPAY");
 
+  const normalizePaymentToken = (value) =>
+    String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[\s-]+/g, "_");
+
   useEffect(() => {
     if (!showRefundForm || refundMode !== "MANUAL") return;
 
@@ -87,29 +144,25 @@ function ShippingProgressPage() {
       ).trim();
 
       if (!next.bankName && orderBankName) next.bankName = orderBankName;
-      if (!next.bankAccountNumber && orderBankAccountNumber)
+      if (!next.bankAccountNumber && orderBankAccountNumber) {
         next.bankAccountNumber = orderBankAccountNumber;
-      if (!next.bankAccountHolder && orderBankAccountHolder)
+      }
+      if (!next.bankAccountHolder && orderBankAccountHolder) {
         next.bankAccountHolder = orderBankAccountHolder;
+      }
 
       return next;
     });
   }, [order, showRefundForm, refundMode]);
 
-  const normalizePaymentToken = (value) =>
-    String(value || "")
-      .trim()
-      .toUpperCase()
-      .replace(/[\s-]+/g, "_");
-
-  const isVnpayPaidOrder = (order) => {
-    const paymentMethod = normalizePaymentToken(order?.paymentMethod).replace(
-      /_/g,
-      "",
-    );
-    const paymentStatus = normalizePaymentToken(order?.paymentStatus);
+  const isVnpayPaidOrder = (currentOrder) => {
+    const paymentMethod = normalizePaymentToken(
+      currentOrder?.paymentMethod,
+    ).replace(/_/g, "");
+    const paymentStatus = normalizePaymentToken(currentOrder?.paymentStatus);
 
     if (paymentMethod !== "VNPAY") return false;
+
     return [
       "PAID",
       "PAID_FULL",
@@ -119,40 +172,56 @@ function ShippingProgressPage() {
     ].includes(paymentStatus);
   };
 
-  const isVnpayOrder = (order) => {
+  const isVnpayOrder = (currentOrder) => {
     return (
-      normalizePaymentToken(order?.paymentMethod).replace(/_/g, "") === "VNPAY"
+      normalizePaymentToken(currentOrder?.paymentMethod).replace(/_/g, "") ===
+      "VNPAY"
     );
   };
 
-  const canCancelOrder = (order) => {
-    const raw = String(order?.rawStatus || order?.status || "")
+  const canCancelOrder = (currentOrder) => {
+    const raw = String(currentOrder?.rawStatus || currentOrder?.status || "")
       .trim()
       .toUpperCase();
 
-    const refundStatus = normalizePaymentToken(order?.refundStatus);
+    const refundStatus = normalizePaymentToken(currentOrder?.refundStatus);
 
     if (refundStatus === "REFUNDED") return false;
     if (["CANCELLED", "CANCELED"].includes(raw)) return false;
 
-    // BE only allows cancelling before shipping.
     return ["PENDING", "PREORDER", "PROCESSING"].includes(raw);
   };
 
-  const isRemainingPaid = (order) => {
-    const paymentStatus = normalizePaymentToken(order?.paymentStatus);
+  const isRemainingPaid = (currentOrder) => {
+    const paymentStatus = normalizePaymentToken(currentOrder?.paymentStatus);
+    const isPartial =
+      String(currentOrder?.depositType || "")
+        .trim()
+        .toUpperCase() === "PARTIAL";
 
-    // Đặt chốt chặn quyền lực nhất lên mốc đầu tiên
-    // Đã UNPAID thì không cần quan tâm thông số ảo nào bên dưới nữa.
     if (["UNPAID", "PENDING", "FAILED", "CANCELLED"].includes(paymentStatus)) {
       return false;
     }
 
     const remainingStatus = normalizePaymentToken(
-      order?.remainingPaymentStatus,
+      currentOrder?.remainingPaymentStatus ??
+        currentOrder?.finalPaymentStatus ??
+        currentOrder?.remainingPaymentStage,
     );
+
     if (remainingStatus === "PAID") return true;
     if (remainingStatus === "UNPAID") return false;
+    if (
+      ["WAITING_CONFIRM", "WAITING_CONFIRMATION", "PENDING"].includes(
+        remainingStatus,
+      )
+    ) {
+      return false;
+    }
+
+    if (isPartial) {
+      return paymentStatus === "PAID_FULL";
+    }
 
     if (
       ["PAID", "PAID_FULL", "FULLY_PAID", "PAID_IN_FULL", "SETTLED"].includes(
@@ -164,16 +233,27 @@ function ShippingProgressPage() {
 
     // fallback when fields are missing
     const remainingAmount = Number(
-      order?.remainingAmount ??
-        Number(order?.finalTotal || 0) - Number(order?.depositAmount || 0),
+      currentOrder?.remainingAmount ??
+        Number(
+          currentOrder?.finalTotal ??
+            currentOrder?.finalPrice ??
+            currentOrder?.totalPrice ??
+            0,
+        ) - Number(currentOrder?.depositAmount || 0),
     );
+
     return remainingAmount <= 0;
   };
 
-  const getRemainingAmount = (order) => {
+  const getRemainingAmount = (currentOrder) => {
     return Number(
-      order?.remainingAmount ??
-        Number(order?.finalTotal || 0) - Number(order?.depositAmount || 0),
+      currentOrder?.remainingAmount ??
+        Number(
+          currentOrder?.finalTotal ??
+            currentOrder?.finalPrice ??
+            currentOrder?.totalPrice ??
+            0,
+        ) - Number(currentOrder?.depositAmount || 0),
     );
   };
 
@@ -208,6 +288,7 @@ function ShippingProgressPage() {
     const handleMessage = (event) => {
       if (event.origin !== window.location.origin) return;
       const data = event.data;
+
       if (data && data.type === "VNPAY_RESULT") {
         if (data.success) {
           showToast("Payment successful!");
@@ -217,6 +298,7 @@ function ShippingProgressPage() {
         loadAll();
       }
     };
+
     window.addEventListener("message", handleMessage);
 
     return () => {
@@ -226,6 +308,9 @@ function ShippingProgressPage() {
   }, [loadAll, showToast]);
 
   const refundStatusToken = normalizePaymentToken(order?.refundStatus);
+  const rawStatusToken = String(order?.rawStatus || order?.status || "")
+    .trim()
+    .toUpperCase();
 
   const steps = useMemo(() => {
     const raw = String(order?.rawStatus || order?.status || "")
@@ -266,6 +351,7 @@ function ShippingProgressPage() {
         },
       ];
     }
+
     return [
       {
         title: "Order Created",
@@ -293,32 +379,57 @@ function ShippingProgressPage() {
   const orderStep = getOrderStep(order?.rawStatus || order?.status);
   const shipmentStep = shipment?.status ? getShipmentStep(shipment.status) : -1;
 
-  // Keep progress consistent across screens by taking the furthest known step.
-  // Example: order is SHIPPING but shipment is still PICKUP_PENDING.
   const isRefundProgress =
     refundStatusToken === "REFUNDED" || refundStatusToken === "PENDING";
 
   const activeStep = isRefundProgress
     ? 0
-    : String(order?.rawStatus || order?.status)
-          .trim()
-          .toUpperCase() === "CANCELLED" ||
-        String(order?.rawStatus || order?.status)
-          .trim()
-          .toUpperCase() === "CANCELED"
+    : rawStatusToken === "CANCELLED" || rawStatusToken === "CANCELED"
       ? 1
       : Math.max(orderStep, shipmentStep);
+
   const remainingAmount = getRemainingAmount(order);
+
+  const remainingPaymentMethod = normalizePaymentToken(
+    order?.remainingPaymentMethod ??
+      order?.finalPaymentMethod ??
+      order?.balancePaymentMethod,
+  );
+
   const isRemainingMethodCOD =
-    normalizePaymentToken(order?.paymentMethod) === "COD";
+    remainingPaymentMethod === "COD" ||
+    (remainingPaymentMethod === "" &&
+      normalizePaymentToken(order?.paymentMethod) === "COD");
+
   const isAwaitingManualConfirmation =
     !isRemainingPaid(order) && remainingAmount > 0 && isRemainingMethodCOD;
+  const vnpayPaid = isVnpayPaidOrder(order);
+
+  const canShowRemainingPayment =
+    String(order?.depositType || "")
+      .trim()
+      .toUpperCase() === "PARTIAL" &&
+    !isRemainingPaid(order) &&
+    remainingAmount > 0 &&
+    ["COMPLETED", "DELIVERED"].includes(rawStatusToken);
+
   const vnpayPaid = isVnpayPaidOrder(order);
 
   const handlePayBalance = async (method) => {
     try {
       const remaining = getRemainingAmount(order);
 
+      if (
+        String(order?.depositType || "")
+          .trim()
+          .toUpperCase() !== "PARTIAL" ||
+        !["COMPLETED", "DELIVERED"].includes(rawStatusToken)
+      ) {
+        showToast(
+          "You can pay the remaining amount only when the order is DELIVERED or COMPLETED",
+        );
+        return;
+      }
       if (remaining <= 0) {
         showToast("No remaining payment");
         return;
@@ -348,6 +459,7 @@ function ShippingProgressPage() {
         const height = 600;
         const left = window.screen.width / 2 - width / 2;
         const top = window.screen.height / 2 - height / 2;
+
         window.open(
           url,
           "VNPay_Payment",
@@ -367,16 +479,18 @@ function ShippingProgressPage() {
 
   const handleCancelOrder = async () => {
     if (!canCancelOrder(order)) {
-      showToast("Orders in pending or processing cannot be cancelled");
+      showToast("This order cannot be cancelled at its current status");
       return;
     }
 
     if (isVnpayPaidOrder(order)) {
       const refundStatus = normalizePaymentToken(order?.refundStatus);
+
       if (refundStatus === "PENDING") {
         showToast("Refund is already pending");
         return;
       }
+
       if (refundStatus === "REFUNDED") {
         showToast("This order has already been refunded");
         return;
@@ -420,6 +534,7 @@ function ShippingProgressPage() {
     const bankName = refundForm.bankName.trim();
     const bankAccountNumber = refundForm.bankAccountNumber.trim();
     const bankAccountHolder = refundForm.bankAccountHolder.trim();
+
     if (refundMode === "MANUAL") {
       if (!bankName) {
         showToast("Bank name is required", "error");
@@ -441,6 +556,7 @@ function ShippingProgressPage() {
         return;
       }
     }
+
     if (refundMode === "AUTO_VNPAY" && !vnpayPaid) {
       showToast("Order is not paid via VNPay, cannot auto refund", "error");
       return;
@@ -579,6 +695,7 @@ function ShippingProgressPage() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   {steps.map((step, index) => {
                     const active = index <= activeStep;
+
                     return (
                       <div
                         key={step.title}
@@ -595,7 +712,9 @@ function ShippingProgressPage() {
                         </div>
                         <div className="mt-4 font-bold">{step.title}</div>
                         <div
-                          className={`text-sm mt-1 ${active ? "text-white/80" : "text-gray-400"}`}
+                          className={`text-sm mt-1 ${
+                            active ? "text-white/80" : "text-gray-400"
+                          }`}
                         >
                           {step.desc}
                         </div>
@@ -654,7 +773,7 @@ function ShippingProgressPage() {
                       Delivered Date
                     </div>
                     <div className="font-semibold text-gray-800">
-                      {shipment.deliveredDate || "Not delivered yet"}
+                      {estimateDeliveredDate(order, shipment)}
                     </div>
                   </div>
                 </div>
@@ -719,10 +838,12 @@ function ShippingProgressPage() {
                   <FiMapPin className="mt-0.5 text-gray-400" />
                   <div>{order.address || "-"}</div>
                 </div>
+
                 <div className="flex items-start gap-3">
                   <FiPhone className="mt-0.5 text-gray-400" />
                   <div>{order.phone || "-"}</div>
                 </div>
+
                 <div className="flex items-start gap-3">
                   <FiCreditCard className="mt-0.5 text-gray-400" />
                   <div>
@@ -730,7 +851,9 @@ function ShippingProgressPage() {
                     {(() => {
                       const token = normalizePaymentToken(order?.refundStatus);
                       if (!token || token === "NONE") return null;
+
                       const isRefunded = token === "REFUNDED";
+
                       return (
                         <div
                           className={`inline-flex mt-2 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
@@ -751,70 +874,94 @@ function ShippingProgressPage() {
                 <div className="flex justify-between">
                   <span>Subtotal</span>
                   <span>
-                    {Number(order.subTotal || 0).toLocaleString("vi-VN")} ₫
+                    {Number(order.subTotal || 0).toLocaleString("vi-VN")} đ
                   </span>
                 </div>
+
                 <div className="flex justify-between">
                   <span>Shipping fee</span>
                   <span>
-                    {Number(order.shippingFee || 0).toLocaleString("vi-VN")} ₫
+                    {Number(order.shippingFee || 0).toLocaleString("vi-VN")} đ
                   </span>
                 </div>
-                <div className="flex justify-between">
+
+                {/* <div className="flex justify-between">
                   <span>Discount</span>
                   <span>
-                    {Number(order.discount || 0).toLocaleString("vi-VN")} ₫
+                    {Number(order.discount || 0).toLocaleString("vi-VN")} đ
                   </span>
-                </div>
+                </div> */}
+
                 <div className="flex justify-between text-base font-bold pt-2 border-t">
                   <span>Total</span>
                   <span>
-                    {Number(order.finalTotal || 0).toLocaleString("vi-VN")} ₫
+                    {Number(
+                      order.finalTotal ?? order.finalPrice ?? 0,
+                    ).toLocaleString("vi-VN")}{" "}
+                    đ
                   </span>
                 </div>
+
+                {String(order?.depositType || "")
+                  .trim()
+                  .toUpperCase() === "PARTIAL" && (
+                  <>
+                    <div className="flex justify-between">
+                      <span>Deposit paid</span>
+                      <span>
+                        {Number(order.depositAmount || 0).toLocaleString(
+                          "vi-VN",
+                        )}{" "}
+                        đ
+                      </span>
+                    </div>
+                    <div className="flex justify-between font-semibold text-amber-700">
+                      <span>Remaining</span>
+                      <span>
+                        {Number(remainingAmount).toLocaleString("vi-VN")} đ
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            {order.depositType === "PARTIAL" &&
-              !isRemainingPaid(order) &&
-              remainingAmount > 0 &&
-              (order.rawStatus === "Processing" ||
-                order.rawStatus === "Shipping" ||
-                order.rawStatus === "Delivered") && (
-                <div className="rounded-3xl border bg-amber-50 border-amber-200 p-6 shadow-sm">
-                  <div className="text-lg font-bold text-amber-900">
-                    Remaining Payment
-                  </div>
-                  <div className="mt-2 text-sm text-amber-800">
-                    Remaining amount:
-                    <span className="font-bold ml-1">
-                      {getRemainingAmount(order).toLocaleString("vi-VN")} ₫
-                    </span>
-                  </div>
-
-                  {isAwaitingManualConfirmation ? (
-                    <div className="mt-4 rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm text-amber-800">
-                      COD has been selected for the remaining payment. Waiting
-                      for admin confirmation.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-3 mt-4">
-                      <button
-                        onClick={() => handlePayBalance("VNPAY")}
-                        className="rounded-xl bg-black text-white py-3 font-semibold hover:opacity-90"
-                      >
-                        Pay by VNPay
-                      </button>
-                      <button
-                        onClick={() => handlePayBalance("COD")}
-                        className="rounded-xl border py-3 font-semibold hover:bg-white"
-                      >
-                        Switch to COD for remaining payment
-                      </button>
-                    </div>
-                  )}
+            {canShowRemainingPayment && (
+              <div className="rounded-3xl border bg-amber-50 border-amber-200 p-6 shadow-sm">
+                <div className="text-lg font-bold text-amber-900">
+                  Remaining Payment
                 </div>
-              )}
+
+                <div className="mt-2 text-sm text-amber-800">
+                  Remaining amount:
+                  <span className="font-bold ml-1">
+                    {getRemainingAmount(order).toLocaleString("vi-VN")} đ
+                  </span>
+                </div>
+
+                {isAwaitingManualConfirmation ? (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm text-amber-800">
+                    COD has been selected for the remaining payment. Waiting for
+                    admin confirmation.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 mt-4">
+                    <button
+                      onClick={() => handlePayBalance("VNPAY")}
+                      className="rounded-xl bg-black text-white py-3 font-semibold hover:opacity-90"
+                    >
+                      Pay by VNPay
+                    </button>
+                    <button
+                      onClick={() => handlePayBalance("COD")}
+                      className="rounded-xl border py-3 font-semibold hover:bg-white"
+                    >
+                      Switch to COD for remaining payment
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {canCancelOrder(order) && (
               <div className="space-y-3">
@@ -866,8 +1013,7 @@ function ShippingProgressPage() {
               </div>
             )}
 
-            {String(order?.rawStatus || order?.status).toUpperCase() ===
-              "CANCELLED" &&
+            {["CANCELLED", "CANCELED"].includes(rawStatusToken) &&
               isVnpayOrder(order) &&
               vnpayPaid &&
               !showRefundForm &&
@@ -917,6 +1063,7 @@ function ShippingProgressPage() {
                     >
                       Refund via VNPay
                     </button>
+
                     <button
                       type="button"
                       className={`rounded-xl border py-2 text-sm font-semibold ${
@@ -953,9 +1100,11 @@ function ShippingProgressPage() {
                   {refundMode === "MANUAL" && (
                     <>
                       <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                        Bạn phải nhập đúng STK của mình. Nếu có sự nhầm lẫn gì
-                        thì bên hệ thống không chịu trách nhiệm.
+                        Báº¡n pháº£i nháº­p Ä‘Ãºng STK cá»§a mÃ¬nh. Náº¿u cÃ³
+                        sá»± nháº§m láº«n gÃ¬ thÃ¬ bÃªn há»‡ thá»‘ng khÃ´ng
+                        chá»‹u trÃ¡ch nhiá»‡m.
                       </div>
+
                       <input
                         className="w-full rounded-xl border px-3 py-2 text-sm"
                         placeholder="Bank name"
@@ -967,6 +1116,7 @@ function ShippingProgressPage() {
                           }))
                         }
                       />
+
                       <input
                         className="w-full rounded-xl border px-3 py-2 text-sm"
                         placeholder="Bank account number"
@@ -981,6 +1131,7 @@ function ShippingProgressPage() {
                           }))
                         }
                       />
+
                       <input
                         className="w-full rounded-xl border px-3 py-2 text-sm"
                         placeholder="Account holder"
@@ -1004,6 +1155,7 @@ function ShippingProgressPage() {
                     >
                       Close
                     </button>
+
                     <button
                       type="button"
                       className="rounded-xl bg-black text-white py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-60"
@@ -1021,11 +1173,16 @@ function ShippingProgressPage() {
             )}
 
             {isRemainingPaid(order) &&
-              String(order?.rawStatus || order?.status).toUpperCase() !==
-                "CANCELLED" && (
+              !["CANCELLED", "CANCELED"].includes(rawStatusToken) && (
                 <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-800 flex items-start gap-3">
                   <FiCheckCircle className="mt-0.5" />
-                  <div>This order has been paid successfully.</div>
+                  <div>
+                    {String(order?.depositType || "")
+                      .trim()
+                      .toUpperCase() === "PARTIAL"
+                      ? "The remaining payment has been completed successfully."
+                      : "This order has been paid successfully."}
+                  </div>
                 </div>
               )}
           </div>
