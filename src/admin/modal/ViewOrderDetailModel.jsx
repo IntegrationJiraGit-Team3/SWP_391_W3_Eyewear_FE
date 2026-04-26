@@ -286,7 +286,19 @@ function ViewOrderDetailsModal({ order, onClose, onUpdateStatus }) {
           ? "Cannot manage shipment for a refunded order."
           : "";
 
-  if (!order) return null;
+  const hasPrescription = (order.orderItems || []).some((item) => {
+    const rx = item.prescription || item;
+    return (
+      rx.sphLeft != null ||
+      rx.sphRight != null ||
+      rx.cylLeft != null ||
+      rx.cylRight != null ||
+      rx.axisLeft != null ||
+      rx.axisRight != null ||
+      rx.addLeft != null ||
+      rx.addRight != null
+    );
+  });
 
   const handleSaveShipment = async () => {
     if (!canCreateOrUpdateShipment) {

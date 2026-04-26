@@ -102,42 +102,23 @@ function AdminReportsDashboard({ type = "overview" }) {
     return processedOrders > 0 ? processedOrders : fallback;
   }, [analytics, processedOrders, refundedOrders]);
 
-  const kpiRates = useMemo(() => {
-    const completed = toNumber(analytics?.completedOrders);
-    const cancelled = toNumber(analytics?.cancelledOrders);
-    const totalOrders =
-      toNumber(analytics?.totalOrders) ||
-      completed +
-        refundedOrders +
-        cancelled +
-        toNumber(analytics?.pendingOrders) +
-        toNumber(analytics?.processingOrders) +
-        toNumber(analytics?.shippingOrders);
+  // const kpiRates = useMemo(() => {
+  //   const completed = toNumber(analytics?.completedOrders);
+  //   const cancelled = toNumber(analytics?.cancelledOrders);
 
-    if (totalOrders <= 0) {
-      return { completionRate: 0, refundRate: 0, cancelRate: 0 };
-    }
+  //   const totalOrders = toNumber(analytics?.totalOrders);
+  //   if (totalOrders <= 0) {
+  //     return { completionRate: 0, refundRate: 0, cancelRate: 0 };
+  //   }
 
-    const allocated = applyPercentages(
-      [
-        { key: "refundRate", value: refundedOrders },
-        { key: "completionRate", value: completed },
-        { key: "cancelRate", value: cancelled },
-        { key: "otherRate", value: Math.max(totalOrders - completed - refundedOrders - cancelled, 0) },
-      ],
-      "value",
-      "percent",
-    );
+  //   const refundRate = Number(
+  //     ((refundedOrders / totalOrders) * 100).toFixed(1),
+  //   );
+  //   const completionRate = Number(((completed / totalOrders) * 100).toFixed(1));
+  //   const cancelRate = Number(((cancelled / totalOrders) * 100).toFixed(1));
 
-    const refundRate =
-      allocated.find((item) => item.key === "refundRate")?.percent ?? 0;
-    const completionRate =
-      allocated.find((item) => item.key === "completionRate")?.percent ?? 0;
-    const cancelRate =
-      allocated.find((item) => item.key === "cancelRate")?.percent ?? 0;
-
-    return { completionRate, refundRate, cancelRate };
-  }, [analytics, refundedOrders]);
+  //   return { completionRate, refundRate, cancelRate };
+  // }, [analytics, processedOrders, refundedOrders]);
 
   const revenueGroup = useMemo(() => {
     const completedRevenue = Math.max(
@@ -271,24 +252,32 @@ function AdminReportsDashboard({ type = "overview" }) {
     return applyPercentages(baseRows, "count", "percent");
   }, [analytics, refundedOrders]);
 
-  const orderOutcomeGroup = useMemo(() => {
-    const rows = [
-      {
-        label: "Completed",
-        value: toNumber(analytics?.completedOrders),
-      },
-      {
-        label: "Refunded",
-        value: refundedOrders,
-      },
-      {
-        label: "Cancelled",
-        value: toNumber(analytics?.cancelledOrders),
-      },
-    ];
+  // const orderOutcomeGroup = useMemo(() => {
+  //   const rows = [
+  //     {
+  //       label: "Completed",
+  //       value: toNumber(analytics?.completedOrders),
+  //     },
+  //     {
+  //       label: "Refunded",
+  //       value: refundedOrders,
+  //     },
+  //     {
+  //       label: "Cancelled",
+  //       value: toNumber(analytics?.cancelledOrders),
+  //     },
+  //   ];
 
-    return applyPercentages(rows, "value", "share");
-  }, [analytics, refundedOrders]);
+  //   return applyPercentages(rows, "value", "share");
+  // }, [analytics]);
+
+  const orderStatusShares = useMemo(() => {
+    const map = Object.create(null);
+    for (const row of orderStatusRows) {
+      map[row.status] = toNumber(row.percent);
+    }
+    return map;
+  }, [orderStatusRows]);
 
   const orderStatusMap = useMemo(() => {
     const map = Object.create(null);
@@ -1339,17 +1328,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                     headers={["Phương thức", "Giá trị", "Tỷ trọng"]}
                     rows={paymentMethodGroup.map((item) => [
                       item.label,
-                      <div
-                        className="min-w-[160px]"
-                        key={`${item.label}-value`}
-                      >
-                        <div className="font-medium text-slate-700">
-                          {formatCurrency(item.value)}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          (Thực nhận: {formatCurrency(item.netValue)})
-                        </div>
-                      </div>,
+                      formatCurrency(item.value),
                       `${item.share}%`,
                     ])}
                   />
@@ -1658,43 +1637,27 @@ function AdminReportsDashboard({ type = "overview" }) {
 
                 <div className="space-y-4">
                   <div className="text-sm font-semibold text-slate-700">
-                    Bảng gọng (tối đa 8)
+                    Bảng gọng
                   </div>
                   <SimpleTable
-                    headers={[
-                      "Gọng",
-                      "Số lượng bán",
-                      "Doanh thu",
-                      "Tỷ trọng SL",
-                      "Tỷ trọng DT",
-                    ]}
+                    headers={["Gọng", "Số lượng bán", "Tỉ trọng SL"]}
                     rows={frameQuantityTable.map((item) => [
                       item.name,
                       formatCompactNumber(item.quantitySold),
-                      formatCurrency(item.revenue),
                       `${item.shareQty}%`,
-                      `${item.shareRev}%`,
                     ])}
                   />
 
                   <div className="pt-4 border-t border-slate-100" />
                   <div className="text-sm font-semibold text-slate-700">
-                    Bảng lens (tối đa 8)
+                    Bảng lens
                   </div>
                   <SimpleTable
-                    headers={[
-                      "Lens",
-                      "Số lượng bán",
-                      "Doanh thu",
-                      "Tỷ trọng SL",
-                      "Tỷ trọng DT",
-                    ]}
+                    headers={["Lens", "Số lượng bán", "Tỉ trọng SL"]}
                     rows={lensQuantityTable.map((item) => [
                       item.name,
                       formatCompactNumber(item.quantitySold),
-                      formatCurrency(item.revenue),
                       `${item.shareQty}%`,
-                      `${item.shareRev}%`,
                     ])}
                   />
                 </div>
@@ -1763,8 +1726,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                       "Refund",
                       "Đang xử lý",
                       "Tổng",
-                      "Tỷ trọng SL",
-                      "Tỷ trọng DT",
+                      "Tỉ trọng DT",
                     ]}
                     rows={frameRevenueTable.map((item) => [
                       item.name,
@@ -1772,7 +1734,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                       formatCurrency(item.refunded),
                       formatCurrency(item.pending),
                       formatCurrency(item.total),
-                      `${item.shareQty}%`,
                       `${item.shareRev}%`,
                     ])}
                   />
@@ -1788,8 +1749,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                       "Refund",
                       "Đang xử lý",
                       "Tổng",
-                      "Tỷ trọng SL",
-                      "Tỷ trọng DT",
+                      "Tỉ trọng DT",
                     ]}
                     rows={lensRevenueTable.map((item) => [
                       item.name,
@@ -1797,7 +1757,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                       formatCurrency(item.refunded),
                       formatCurrency(item.pending),
                       formatCurrency(item.total),
-                      `${item.shareQty}%`,
                       `${item.shareRev}%`,
                     ])}
                   />

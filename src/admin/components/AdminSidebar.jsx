@@ -194,12 +194,6 @@ function AdminSidebar({ collapsed }) {
             <CiDeliveryTruck size={18} />,
             "Pre-order",
           )}
-          {/* {renderItem(
-            "/dashboard/prescriptions",
-            <GiMicroscopeLens size={18} />,
-            "Prescription",
-          )} */}
-          {renderItem("/dashboard/profile", <FiUser size={18} />, "Profile")}
         </div>
       </div>
 

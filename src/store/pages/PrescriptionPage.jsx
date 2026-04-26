@@ -248,20 +248,14 @@ export default function PrescriptionPage() {
   const savePreorderFlag = (variant) => {
     if ((variant?.stockQuantity || 0) !== 0) return;
 
-    try {
-      const preorders =
-        JSON.parse(localStorage.getItem("frontend_preorders")) || {};
-      preorders[variant.variantId] = true;
-      localStorage.setItem("frontend_preorders", JSON.stringify(preorders));
-    } catch {
-      // ignore
-    }
+    // Kept for compatibility with local-cart flow. Preorder is stored on item payload.
   };
 
   const handleBuyFrameOnly = async () => {
     const variant = getSelectedFrameVariant();
+
     if (!variant?.variantId) {
-      showToast("Không tìm thấy biến thể của gọng kính.");
+      showToast("KhA'ng tAªm th §y bi §¨n th ¯Ÿ c ¯a g ¯?ng kA-nh.");
       return;
     }
 
