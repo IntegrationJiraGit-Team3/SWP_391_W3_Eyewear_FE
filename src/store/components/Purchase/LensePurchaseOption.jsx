@@ -2,25 +2,21 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 export default function LensPurchaseOptions({ product }) {
-
   const [type, setType] = useState("lens");
   const navigate = useNavigate();
 
   const handleContinue = () => {
-
     if (type === "lens") {
       // add lens to cart
     }
-
+    // For prescription, we can either navigate to a prescription form or add to cart with a note to contact customer support for prescription details
     if (type === "prescription") {
       navigate(`/prescription/${product.id}`);
     }
-
   };
 
   return (
     <div className="mt-6">
-
       <h3 className="font-semibold mb-2">Lens Options</h3>
 
       <label className="flex gap-2">
@@ -49,7 +45,6 @@ export default function LensPurchaseOptions({ product }) {
       >
         Continue
       </button>
-
     </div>
   );
 }
