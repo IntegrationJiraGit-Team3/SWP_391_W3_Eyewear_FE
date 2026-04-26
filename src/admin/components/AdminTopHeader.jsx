@@ -5,7 +5,9 @@ import {
   FiSearch,
   FiChevronLeft,
   FiBell,
+  FiMoon,
   FiSettings,
+  FiSun,
   FiUser,
   FiLogOut,
   FiTrash2,
@@ -15,6 +17,7 @@ import { adminMock } from "../data/adminMock";
 import notificationService from "../../store/services/notificationService";
 import { useToast } from "../../context/ToastContext";
 import ConfirmDialog from "../../shared/common/ConfirmDialog";
+import { useTheme } from "../../context/ThemeContext";
 
 function AdminTopHeader({ onToggleSidebar, collapsed }) {
   const [open, setOpen] = useState(false);
@@ -24,6 +27,7 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
   const notifRef = useRef(null);
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const [admin, setAdmin] = useState(() => {
@@ -162,6 +166,15 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
 
         {/* ── RIGHT ── */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition"
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {isDark ? <FiSun size={18} /> : <FiMoon size={18} />}
+          </button>
+
           {/* Notification bell */}
           <div ref={notifRef} className="relative">
             <button

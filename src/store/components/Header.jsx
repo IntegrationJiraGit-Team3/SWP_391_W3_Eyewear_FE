@@ -1,13 +1,21 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
-import { FiShoppingBag, FiClipboard, FiBell } from "react-icons/fi";
+import {
+  FiShoppingBag,
+  FiClipboard,
+  FiBell,
+  FiMoon,
+  FiSun,
+} from "react-icons/fi";
 import notificationService from "../services/notificationService";
 import { useToast } from "../../context/ToastContext";
 import ConfirmDialog from "../../shared/common/ConfirmDialog";
+import { useTheme } from "../../context/ThemeContext";
 
 function Header() {
   const navigate = useNavigate();
   const { showToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
 
   const MENU_ITEMS = [
     { label: "Store", path: "/shop" },
@@ -177,6 +185,26 @@ function Header() {
 
             {/* RIGHT ACTIONS */}
             <div className="flex items-center gap-5 ml-2 border-l border-stone-200 pl-6">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex items-center gap-1.5 text-stone-500 hover:text-blue-600 transition-colors group"
+                title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {isDark ? (
+                  <FiSun
+                    size={18}
+                    className="group-hover:-translate-y-0.5 transition-transform"
+                  />
+                ) : (
+                  <FiMoon
+                    size={18}
+                    className="group-hover:-translate-y-0.5 transition-transform"
+                  />
+                )}
+                <span className="mt-0.5">{isDark ? "Light" : "Dark"}</span>
+              </button>
+
               {/* ORDER HISTORY */}
               <Link
                 to="/my-orders"
@@ -418,6 +446,15 @@ function Header() {
 
           {/* MOBILE */}
           <div className="md:hidden flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="text-stone-600 hover:text-blue-600 p-2"
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {isDark ? <FiSun size={20} /> : <FiMoon size={20} />}
+            </button>
+
             <Link
               to="/my-orders"
               className="text-stone-600 hover:text-blue-600 p-2"

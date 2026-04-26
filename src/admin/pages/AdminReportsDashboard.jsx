@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState, useCallback } from "react";
 import Chart from "react-apexcharts";
 import { motion } from "framer-motion";
 import {
@@ -12,7 +12,8 @@ import {
   FiXCircle,
 } from "react-icons/fi";
 import { getDashboardAnalytics } from "../services/dashboardService";
-import { connectDashboardSocket } from "../services/dashboardSocketService";
+import { useTheme } from "../../context/ThemeContext";
+// import { connectDashboardSocket } from "../services/dashboardSocketService";
 
 const fadeUp = (delay = 0) => ({
   initial: { opacity: 0, y: 18 },
@@ -21,9 +22,11 @@ const fadeUp = (delay = 0) => ({
 });
 
 function AdminReportsDashboard({ type = "overview" }) {
+  const { isDark } = useTheme();
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [groupBy, setGroupBy] = useState("DAILY");
+  const [refreshing, setRefreshing] = useState(false);
   const [fromDate, setFromDate] = useState(() => {
     const today = new Date();
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -31,38 +34,50 @@ function AdminReportsDashboard({ type = "overview" }) {
   });
   const [toDate, setToDate] = useState(() => toInputDate(new Date()));
 
-  useEffect(() => {
-    let disposeSocket = () => {};
-
-    const fetchDashboard = async () => {
+  const fetchDashboard = useCallback(
+    async (isManualRefresh = false) => {
       try {
-        setLoading(true);
+        if (isManualRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
         const data = await getDashboardAnalytics(fromDate, toDate, groupBy);
         setAnalytics(data);
       } catch (error) {
         console.error("Fetch dashboard analytics error:", error);
       } finally {
         setLoading(false);
+        setRefreshing(false);
       }
-    };
+    },
+    [fromDate, toDate, groupBy],
+  );
 
-    fetchDashboard();
+  useEffect(() => {
+    // let disposeSocket = () => {};
 
-    disposeSocket = connectDashboardSocket({
-      fromDate,
-      toDate,
-      groupBy,
-      onAnalytics: (nextAnalytics) => {
-        setAnalytics(nextAnalytics);
-        setLoading(false);
-      },
-      onError: (error) => {
-        console.error("Dashboard socket error:", error);
-      },
-    });
+    fetchDashboard(false);
 
-    return () => disposeSocket();
-  }, [fromDate, toDate, groupBy]);
+    // disposeSocket = connectDashboardSocket({
+    //   fromDate,
+    //   toDate,
+    //   groupBy,
+    //   onAnalytics: (nextAnalytics) => {
+    //     setAnalytics(nextAnalytics);
+    //     setLoading(false);
+    //     setRefreshing(false);
+    //   },
+    //   onError: (error) => {
+    //     console.error("Dashboard socket error:", error);
+    //     setLoading(false);
+    //     setRefreshing(false);
+    //   },
+    // });
+
+    // return () => disposeSocket();
+  }, [fetchDashboard, fromDate, toDate, groupBy]);
 
   const grossRevenue = toNumber(
     analytics?.grossRevenue ?? analytics?.totalRevenue,
@@ -117,7 +132,7 @@ function AdminReportsDashboard({ type = "overview" }) {
         value: completedRevenue,
       },
       {
-        label: "Doanh thu hoàn trả",
+        label: "Doanh thu hoàn tiền",
         value: refundedRevenue,
       },
       {
@@ -134,10 +149,14 @@ function AdminReportsDashboard({ type = "overview" }) {
       {
         label: "COD",
         value: toNumber(analytics?.codRevenue),
+        netValue: toNumber(analytics?.codNetRevenue ?? analytics?.codRevenue),
       },
       {
         label: "VNPAY",
         value: toNumber(analytics?.vnpayRevenue),
+        netValue: toNumber(
+          analytics?.vnpayNetRevenue ?? analytics?.vnpayRevenue,
+        ),
       },
     ];
 
@@ -200,7 +219,7 @@ function AdminReportsDashboard({ type = "overview" }) {
     ];
 
     return applyPercentages(rows, "count", "percent");
-  }, [analytics]);
+  }, [analytics, refundedOrders]);
 
   const orderStatusRows = useMemo(() => {
     const baseRows = [
@@ -231,7 +250,7 @@ function AdminReportsDashboard({ type = "overview" }) {
     ];
 
     return applyPercentages(baseRows, "count", "percent");
-  }, [analytics]);
+  }, [analytics, refundedOrders]);
 
   // const orderOutcomeGroup = useMemo(() => {
   //   const rows = [
@@ -274,16 +293,16 @@ function AdminReportsDashboard({ type = "overview" }) {
   const overviewCards = useMemo(() => {
     return [
       {
-        title: "Doanh thu thuần",
+        title: "Doanh thu gộp",
         value: formatCurrency(grossRevenue),
-        sub: "Tổng doanh thu",
+        sub: "Trước khi trừ hoàn tiền",
         icon: FiDollarSign,
         color: "bg-emerald-100 text-emerald-600",
       },
       {
-        title: "Doanh thu ròng",
+        title: "Thanh toán thực nhận",
         value: formatCurrency(netRevenue),
-        sub: "Doanh thu sau hoàn trả",
+        sub: "Sau khi trừ hoàn tiền",
         icon: FiDollarSign,
         color: "bg-emerald-100 text-emerald-600",
       },
@@ -341,9 +360,16 @@ function AdminReportsDashboard({ type = "overview" }) {
         toolbar: { show: false },
         fontFamily: "Inter, system-ui, sans-serif",
       },
+      theme: { mode: isDark ? "dark" : "light" },
       labels: revenueGroup.map((item) => item.label),
       legend: { position: "bottom" },
       plotOptions: { pie: { donut: { size: "62%" } } },
+      fill: { opacity: 1 },
+      stroke: {
+        show: true,
+        width: 2,
+        colors: [isDark ? "#111827" : "#ffffff"],
+      },
       colors: ["#22c55e", "#ef4444", "#f59e0b"],
       dataLabels: {
         formatter: (_, options) =>
@@ -353,7 +379,7 @@ function AdminReportsDashboard({ type = "overview" }) {
         y: { formatter: (value) => formatCurrency(value) },
       },
     }),
-    [revenueGroup],
+    [isDark, revenueGroup],
   );
 
   const revenueDonutSeries = useMemo(
@@ -465,26 +491,69 @@ function AdminReportsDashboard({ type = "overview" }) {
     [analytics],
   );
 
-  const totalFrameRevenue = useMemo(
+  const productInventoryRows = useMemo(
+    () => analytics?.productInventoryReport || [],
+    [analytics],
+  );
+
+  const productRevenueBaseRows = useMemo(() => {
+    const map = new Map();
+
+    for (const row of productInventoryRows) {
+      const productName = row?.productName || "N/A";
+      const productType =
+        String(row?.productType || "").toUpperCase() === "LENS"
+          ? "LENS"
+          : "FRAME";
+      const key = `${productType}::${productName}`;
+
+      const current = map.get(key) || {
+        name: productName,
+        productType,
+        quantitySold: 0,
+        completed: 0,
+        refunded: 0,
+        pending: 0,
+        total: 0,
+      };
+
+      current.quantitySold += toNumber(row?.purchasedQuantity);
+      current.completed += toNumber(row?.completedRevenue);
+      current.refunded += toNumber(row?.refundedRevenue);
+      current.pending += toNumber(row?.pendingRevenue);
+      current.total = current.completed + current.refunded + current.pending;
+
+      map.set(key, current);
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total;
+      if (b.quantitySold !== a.quantitySold) {
+        return b.quantitySold - a.quantitySold;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [productInventoryRows]);
+
+  const frameRevenueBaseRows = useMemo(
     () =>
-      frameRevenueRows.reduce((sum, item) => {
-        const completed = toNumber(item?.completedRevenue);
-        const refunded = toNumber(item?.refundedRevenue);
-        const pending = toNumber(item?.pendingRevenue);
-        return sum + completed + refunded + pending;
-      }, 0),
-    [frameRevenueRows],
+      productRevenueBaseRows.filter((item) => item.productType !== "LENS"),
+    [productRevenueBaseRows],
+  );
+
+  const lensRevenueBaseRows = useMemo(
+    () => productRevenueBaseRows.filter((item) => item.productType === "LENS"),
+    [productRevenueBaseRows],
+  );
+
+  const totalFrameRevenue = useMemo(
+    () => frameRevenueBaseRows.reduce((sum, item) => sum + item.total, 0),
+    [frameRevenueBaseRows],
   );
 
   const totalLensRevenue = useMemo(
-    () =>
-      lensRevenueRows.reduce((sum, item) => {
-        const completed = toNumber(item?.completedRevenue);
-        const refunded = toNumber(item?.refundedRevenue);
-        const pending = toNumber(item?.pendingRevenue);
-        return sum + completed + refunded + pending;
-      }, 0),
-    [lensRevenueRows],
+    () => lensRevenueBaseRows.reduce((sum, item) => sum + item.total, 0),
+    [lensRevenueBaseRows],
   );
 
   const totalProductRevenue = totalFrameRevenue + totalLensRevenue;
@@ -528,21 +597,7 @@ function AdminReportsDashboard({ type = "overview" }) {
   }, [lensQuantityRows]);
 
   const frameRevenueTable = useMemo(() => {
-    const rows = frameRevenueRows.map((item) => {
-      const completed = toNumber(item?.completedRevenue);
-      const refunded = toNumber(item?.refundedRevenue);
-      const pending = toNumber(item?.pendingRevenue);
-      const total = completed + refunded + pending;
-
-      return {
-        name: item?.productName || "N/A",
-        quantitySold: toNumber(item?.quantitySold),
-        completed,
-        refunded,
-        pending,
-        total,
-      };
-    });
+    const rows = frameRevenueBaseRows.map((item) => ({ ...item }));
 
     const withQuantityShare = applyPercentages(
       rows,
@@ -550,24 +605,10 @@ function AdminReportsDashboard({ type = "overview" }) {
       "shareQty",
     );
     return applyPercentages(withQuantityShare, "total", "shareRev");
-  }, [frameRevenueRows]);
+  }, [frameRevenueBaseRows]);
 
   const lensRevenueTable = useMemo(() => {
-    const rows = lensRevenueRows.map((item) => {
-      const completed = toNumber(item?.completedRevenue);
-      const refunded = toNumber(item?.refundedRevenue);
-      const pending = toNumber(item?.pendingRevenue);
-      const total = completed + refunded + pending;
-
-      return {
-        name: item?.lensType || "N/A",
-        quantitySold: toNumber(item?.quantitySold),
-        completed,
-        refunded,
-        pending,
-        total,
-      };
-    });
+    const rows = lensRevenueBaseRows.map((item) => ({ ...item }));
 
     const withQuantityShare = applyPercentages(
       rows,
@@ -575,11 +616,11 @@ function AdminReportsDashboard({ type = "overview" }) {
       "shareQty",
     );
     return applyPercentages(withQuantityShare, "total", "shareRev");
-  }, [lensRevenueRows]);
+  }, [lensRevenueBaseRows]);
 
-  const productInventoryRows = useMemo(
-    () => analytics?.productInventoryReport || [],
-    [analytics],
+  const frameRevenueChartRows = useMemo(
+    () => frameRevenueTable.slice(0, 8),
+    [frameRevenueTable],
   );
 
   const frameInventoryRows = useMemo(
@@ -631,6 +672,10 @@ function AdminReportsDashboard({ type = "overview" }) {
       (sum, row) => sum + toNumber(row?.purchasedQuantity),
       0,
     );
+    const frameCancelled = frameInventoryRows.reduce(
+      (sum, row) => sum + toNumber(row?.cancelledQuantity),
+      0,
+    );
     const frameStock = frameInventoryRows.reduce(
       (sum, row) => sum + toNumber(row?.inStockQuantity),
       0,
@@ -640,9 +685,14 @@ function AdminReportsDashboard({ type = "overview" }) {
       0,
     );
     const frameTotalItems = frameSold + frameStock + framePreorder;
+    const frameSellThroughBase = frameSold + frameStock;
 
     const lensSold = lensInventoryRows.reduce(
       (sum, row) => sum + toNumber(row?.purchasedQuantity),
+      0,
+    );
+    const lensCancelled = lensInventoryRows.reduce(
+      (sum, row) => sum + toNumber(row?.cancelledQuantity),
       0,
     );
     const lensStock = lensInventoryRows.reduce(
@@ -650,26 +700,50 @@ function AdminReportsDashboard({ type = "overview" }) {
       0,
     );
     const lensTotalItems = lensSold + lensStock;
+    const lensSellThroughBase = lensSold + lensStock;
 
     const totalSold = frameSold + lensSold;
+    const totalCancelled = frameCancelled + lensCancelled;
     const totalItems = frameTotalItems + lensTotalItems;
+    const totalSellThroughBase = frameSellThroughBase + lensSellThroughBase;
 
-    // ✅ Đồng bộ doanh thu với phần "Doanh thu theo sản phẩm"
-    const frameRevenue = frameRevenueRows.reduce((sum, item) => {
-      const completed = toNumber(item?.completedRevenue);
-      const refunded = toNumber(item?.refundedRevenue);
-      const pending = toNumber(item?.pendingRevenue);
-      return sum + completed + refunded + pending;
-    }, 0);
+    const frameRevenue = frameInventoryRows.reduce(
+      (sum, row) =>
+        sum +
+        toNumber(row?.completedRevenue) +
+        toNumber(row?.refundedRevenue) +
+        toNumber(row?.pendingRevenue),
+      0,
+    );
+    const frameCancelledRevenue = frameInventoryRows.reduce(
+      (sum, row) => sum + toNumber(row?.cancelledRevenue),
+      0,
+    );
+    const frameRefundedRevenue = frameInventoryRows.reduce(
+      (sum, row) => sum + toNumber(row?.refundedRevenue),
+      0,
+    );
 
-    const lensRevenue = lensRevenueRows.reduce((sum, item) => {
-      const completed = toNumber(item?.completedRevenue);
-      const refunded = toNumber(item?.refundedRevenue);
-      const pending = toNumber(item?.pendingRevenue);
-      return sum + completed + refunded + pending;
-    }, 0);
+    const lensRevenue = lensInventoryRows.reduce(
+      (sum, row) =>
+        sum +
+        toNumber(row?.completedRevenue) +
+        toNumber(row?.refundedRevenue) +
+        toNumber(row?.pendingRevenue),
+      0,
+    );
+    const lensCancelledRevenue = lensInventoryRows.reduce(
+      (sum, row) => sum + toNumber(row?.cancelledRevenue),
+      0,
+    );
+    const lensRefundedRevenue = lensInventoryRows.reduce(
+      (sum, row) => sum + toNumber(row?.refundedRevenue),
+      0,
+    );
 
     const totalRevenue = frameRevenue + lensRevenue;
+    const totalCancelledRevenue = frameCancelledRevenue + lensCancelledRevenue;
+    const totalRefundedRevenue = frameRefundedRevenue + lensRefundedRevenue;
 
     const percent = (value, total) =>
       total > 0 ? Number(((value / total) * 100).toFixed(1)) : 0;
@@ -677,51 +751,63 @@ function AdminReportsDashboard({ type = "overview" }) {
     return {
       frame: {
         sold: frameSold,
+        cancelled: frameCancelled,
         stock: frameStock,
         preorder: framePreorder,
         totalItems: frameTotalItems,
-        soldShareInItems: percent(frameSold, frameTotalItems),
+        soldShareInItems: percent(frameSold, frameSellThroughBase),
         revenue: frameRevenue,
+        cancelledRevenue: frameCancelledRevenue,
+        refundedRevenue: frameRefundedRevenue,
         revenueShareInTotal: percent(frameRevenue, totalRevenue),
       },
       lens: {
         sold: lensSold,
+        cancelled: lensCancelled,
         stock: lensStock,
         totalItems: lensTotalItems,
-        soldShareInItems: percent(lensSold, lensTotalItems),
+        soldShareInItems: percent(lensSold, lensSellThroughBase),
         revenue: lensRevenue,
+        cancelledRevenue: lensCancelledRevenue,
+        refundedRevenue: lensRefundedRevenue,
         revenueShareInTotal: percent(lensRevenue, totalRevenue),
       },
       total: {
         sold: totalSold,
+        cancelled: totalCancelled,
         items: totalItems,
-        soldShareInItems: percent(totalSold, totalItems),
+        soldShareInItems: percent(totalSold, totalSellThroughBase),
         revenue: totalRevenue,
+        cancelledRevenue: totalCancelledRevenue,
+        refundedRevenue: totalRefundedRevenue,
       },
     };
-  }, [
-    frameInventoryRows,
-    lensInventoryRows,
-    frameRevenueRows,
-    lensRevenueRows,
-  ]);
+  }, [frameInventoryRows, lensInventoryRows]);
 
   const frameInventoryTable = useMemo(() => {
     const rows = frameInventoryRows.map((row) => {
       const sold = toNumber(row?.purchasedQuantity);
+      const cancelled = toNumber(row?.cancelledQuantity);
       const stock = toNumber(row?.inStockQuantity);
       const preorder = toNumber(row?.preorderQuantity);
       const totalItems = sold + stock + preorder;
-      const revenue = toNumber(row?.revenue);
+      const sellThroughBase = sold + stock;
+      const refunded = toNumber(row?.refundedRevenue);
+      const pending = toNumber(row?.pendingRevenue);
+      const revenue = toNumber(row?.completedRevenue) + refunded + pending;
 
       return {
         name: row?.productName || "N/A",
         color: row?.color || "-",
         sold,
+        cancelled,
         stock,
         preorder,
         totalItems,
+        sellThroughBase,
         revenue,
+        refunded,
+        pending,
       };
     });
 
@@ -734,8 +820,8 @@ function AdminReportsDashboard({ type = "overview" }) {
     return withRevenueShare.map((r) => ({
       ...r,
       soldInItemsShare:
-        r.totalItems > 0
-          ? Number(((r.sold / r.totalItems) * 100).toFixed(1))
+        r.sellThroughBase > 0
+          ? Number(((r.sold / r.sellThroughBase) * 100).toFixed(1))
           : 0,
     }));
   }, [frameInventoryRows]);
@@ -743,17 +829,25 @@ function AdminReportsDashboard({ type = "overview" }) {
   const lensInventoryTable = useMemo(() => {
     const rows = lensInventoryRows.map((row) => {
       const sold = toNumber(row?.purchasedQuantity);
+      const cancelled = toNumber(row?.cancelledQuantity);
       const stock = toNumber(row?.inStockQuantity);
       const totalItems = sold + stock;
-      const revenue = toNumber(row?.revenue);
+      const sellThroughBase = sold + stock;
+      const refunded = toNumber(row?.refundedRevenue);
+      const pending = toNumber(row?.pendingRevenue);
+      const revenue = toNumber(row?.completedRevenue) + refunded + pending;
 
       return {
         name: row?.productName || "N/A",
         color: row?.color || "-",
         sold,
+        cancelled,
         stock,
         totalItems,
+        sellThroughBase,
         revenue,
+        refunded,
+        pending,
       };
     });
 
@@ -766,22 +860,22 @@ function AdminReportsDashboard({ type = "overview" }) {
     return withRevenueShare.map((r) => ({
       ...r,
       soldInItemsShare:
-        r.totalItems > 0
-          ? Number(((r.sold / r.totalItems) * 100).toFixed(1))
+        r.sellThroughBase > 0
+          ? Number(((r.sold / r.sellThroughBase) * 100).toFixed(1))
           : 0,
     }));
   }, [lensInventoryRows]);
 
   const productConclusion = useMemo(() => {
     const topQty = productQuantityRows?.[0] || null;
-    const topRev = productRevenueRows?.[0] || null;
+    const topRev = [...frameRevenueTable, ...lensRevenueTable]
+      .filter(Boolean)
+      .sort((a, b) => toNumber(b?.total) - toNumber(a?.total))?.[0];
 
-    const refundedMax = [...(productRevenueRows || [])]
+    const refundedMax = [...frameRevenueTable, ...lensRevenueTable]
       .filter(Boolean)
       .sort(
-        (a, b) =>
-          Math.abs(toNumber(b?.refundedRevenue)) -
-          Math.abs(toNumber(a?.refundedRevenue)),
+        (a, b) => Math.abs(toNumber(b?.refunded)) - Math.abs(toNumber(a?.refunded)),
       )?.[0];
 
     const percent = (value, total) =>
@@ -790,10 +884,10 @@ function AdminReportsDashboard({ type = "overview" }) {
     const topQtyCount = toNumber(topQty?.quantitySold);
     const topQtyShare = percent(topQtyCount, soldQuantitySummary.totalSold);
 
-    const topRevValue = toNumber(topRev?.revenue);
+    const topRevValue = toNumber(topRev?.total);
     const topRevShare = percent(topRevValue, totalProductRevenue);
 
-    const refundedMaxValue = Math.abs(toNumber(refundedMax?.refundedRevenue));
+    const refundedMaxValue = Math.abs(toNumber(refundedMax?.refunded));
     const refundedMaxShare = percent(refundedMaxValue, totalProductRevenue);
 
     return {
@@ -806,7 +900,8 @@ function AdminReportsDashboard({ type = "overview" }) {
     };
   }, [
     productQuantityRows,
-    productRevenueRows,
+    frameRevenueTable,
+    lensRevenueTable,
     soldQuantitySummary.totalSold,
     totalProductRevenue,
   ]);
@@ -863,7 +958,7 @@ function AdminReportsDashboard({ type = "overview" }) {
         style: { fontSize: "10px", colors: ["#fff"] },
       },
       xaxis: {
-        categories: frameRevenueRows.map((item) => item.productName),
+        categories: frameRevenueChartRows.map((item) => item.name),
         labels: {
           formatter: (value) => formatAxisCurrency(value),
         },
@@ -874,43 +969,58 @@ function AdminReportsDashboard({ type = "overview" }) {
       legend: { position: "bottom" },
       colors: ["#ef4444", "#f59e0b", "#22c55e"],
     }),
-    [frameRevenueRows],
+    [frameRevenueChartRows],
   );
 
   const productRevenueSeries = useMemo(
     () => [
       {
         name: "Refund",
-        data: frameRevenueRows.map((item) =>
-          Math.abs(toNumber(item?.refundedRevenue)),
-        ),
+        data: frameRevenueChartRows.map((item) => Math.abs(toNumber(item?.refunded))),
       },
       {
         name: "Đang xử lý",
-        data: frameRevenueRows.map((item) =>
-          Math.max(toNumber(item?.pendingRevenue), 0),
-        ),
+        data: frameRevenueChartRows.map((item) => Math.max(toNumber(item?.pending), 0)),
       },
       {
         name: "Complete",
-        data: frameRevenueRows.map((item) =>
-          Math.max(toNumber(item?.completedRevenue), 0),
-        ),
+        data: frameRevenueChartRows.map((item) => Math.max(toNumber(item?.completed), 0)),
       },
     ],
-    [frameRevenueRows],
+    [frameRevenueChartRows],
   );
 
   const topCustomers = useMemo(
     () => analytics?.customerInsights || [],
     [analytics],
   );
+  const topCustomersWithSpendShare = useMemo(
+    () => applyPercentages(topCustomers, "totalSpent", "spendShare"),
+    [topCustomers],
+  );
+  const cancelledCustomers = useMemo(
+    () =>
+      applyPercentages(
+        [...topCustomers]
+          .filter((item) => toNumber(item?.cancelledOrders) > 0)
+          .sort(
+            (a, b) =>
+              toNumber(b?.cancelledOrders) - toNumber(a?.cancelledOrders),
+          ),
+        "cancelledOrders",
+        "cancelledShare",
+      ),
+    [topCustomers],
+  );
 
   const customerSummary = useMemo(() => {
     const totalCustomers = toNumber(analytics?.totalCustomers);
     const totalOrders = toNumber(analytics?.totalOrders);
     const totalRevenue = toNumber(
-      analytics?.grossRevenue ?? analytics?.totalRevenue,
+      analytics?.netRevenue ??
+        analytics?.remainingRevenueAfterRefund ??
+        analytics?.grossRevenue ??
+        analytics?.totalRevenue,
     );
 
     const avgOrdersPerCustomer =
@@ -925,6 +1035,11 @@ function AdminReportsDashboard({ type = "overview" }) {
       avgOrdersPerCustomer,
     };
   }, [analytics]);
+  const topCustomersBySpending = useMemo(() => {
+    return topCustomersWithSpendShare.filter(
+      (item) => toNumber(item?.totalSpent) !== 0,
+    );
+  }, [topCustomersWithSpendShare]);
 
   const customerChartOptions = useMemo(
     () => ({
@@ -1001,19 +1116,19 @@ function AdminReportsDashboard({ type = "overview" }) {
   const timelineRevenueChartSeries = useMemo(
     () => [
       {
-        name: "Doanh thu thuần",
+        name: "Doanh thu gộp",
         data: timelineRows.map((item) =>
           toNumber(item?.grossRevenue ?? item?.revenue),
         ),
       },
       {
-        name: "Hoàn trả",
+        name: "Hoàn tiền",
         data: timelineRows.map((item) =>
           toNumber(item?.refundedAmount ?? item?.refundAmount),
         ),
       },
       {
-        name: "Doanh thu ròng",
+        name: "Thanh toán thực nhận",
         data: timelineRows.map((item) => {
           const gross = toNumber(item?.grossRevenue ?? item?.revenue);
           const refunded = toNumber(item?.refundedAmount ?? item?.refundAmount);
@@ -1026,23 +1141,28 @@ function AdminReportsDashboard({ type = "overview" }) {
 
   return (
     <div className="min-h-screen bg-slate-50 px-8 pb-12 pt-6">
-      <motion.div {...fadeUp(0)} className="mb-6 flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-slate-900">
-          {type === "overview" && "Báo cáo tổng quan"}
-          {type === "orders" && "Báo cáo đơn hàng"}
-          {type === "products" && "Báo cáo sản phẩm"}
-          {type === "customers" && "Báo cáo khách hàng"}
-        </h1>
-        <p className="text-sm text-slate-500">
-          {type === "overview" &&
-            "Tổng hợp toàn cảnh doanh thu, đơn hàng, khách hàng và biến động theo thời gian."}
-          {type === "orders" &&
-            "Tập trung vào trạng thái đơn hàng, tỉ lệ hoàn tất, hoàn trả và các đơn nổi bật."}
-          {type === "products" &&
-            "Tập trung vào sản phẩm bán chạy, doanh thu theo sản phẩm và ảnh hưởng refund."}
-          {type === "customers" &&
-            "Tập trung vào khách hàng chi tiêu nhiều, mua nhiều đơn, hay hủy đơn và sản phẩm yêu thích."}
-        </p>
+      <motion.div
+        {...fadeUp(0)}
+        className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between"
+      >
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">
+            {type === "overview" && "Báo cáo tổng quan"}
+            {type === "orders" && "Báo cáo đơn hàng"}
+            {type === "products" && "Báo cáo sản phẩm"}
+            {type === "customers" && "Báo cáo khách hàng"}
+          </h1>
+          <p className="text-sm text-slate-500">
+            {type === "overview" &&
+              "Tổng hợp toàn cảnh doanh thu, đơn hàng, khách hàng và biến động theo thời gian."}
+            {type === "orders" &&
+              "Tập trung vào trạng thái đơn hàng, tỷ lệ hoàn tất, hoàn tiền và các đơn nổi bật."}
+            {type === "products" &&
+              "Tập trung vào sản phẩm bán chạy, doanh thu theo sản phẩm và ảnh hưởng refund."}
+            {type === "customers" &&
+              "Tập trung vào khách hàng chi tiêu nhiều, mua nhiều đơn, hay hủy đơn và sản phẩm yêu thích."}
+          </p>
+        </div>
       </motion.div>
 
       <motion.section
@@ -1074,6 +1194,24 @@ function AdminReportsDashboard({ type = "overview" }) {
                 Theo tháng
               </ToggleButton>
             </div>
+
+            <button
+              type="button"
+              onClick={() => fetchDashboard(true)}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              <FiRefreshCcw
+                className={refreshing ? "animate-spin" : ""}
+                size={15}
+              />
+              {refreshing && (
+                <div className="mt-2 flex items-center gap-2 text-sm text-sky-600">
+                  <FiRefreshCcw className="animate-spin" />
+                  Đang tải dữ liệu báo cáo...
+                </div>
+              )}
+            </button>
           </div>
         </div>
       </motion.section>
@@ -1116,7 +1254,7 @@ function AdminReportsDashboard({ type = "overview" }) {
             <DashboardCard
               delay={0.16}
               title="Cơ cấu doanh thu"
-              description="Doanh thu thuần là mốc 100% nên không hiển thị tỉ lệ ở đây; chỉ hiển thị tỉ lệ của Doanh thu ròng, Doanh thu hoàn trả và Doanh thu đang xử lý (đơn chưa hoàn tất: Pending/Processing/Shipping/Preorder)."
+              description="Doanh thu gộp là mốc 100% nên không hiển thị tỷ lệ ở đây; chỉ hiển thị tỷ lệ của Thanh toán thực nhận, Doanh thu hoàn tiền và Doanh thu đang xử lý (đơn chưa hoàn tất: Pending/Processing/Shipping/Preorder)."
               icon={<FiDollarSign className="text-emerald-500" size={20} />}
             >
               {loading ? (
@@ -1130,7 +1268,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                     height={340}
                   />
                   <SimpleTable
-                    headers={["Nhóm doanh thu", "Giá trị", "Tỉ trọng"]}
+                    headers={["Nhóm doanh thu", "Giá trị", "Tỷ trọng"]}
                     rows={revenueGroup.map((item) => [
                       item.label,
                       formatCurrency(item.value),
@@ -1158,7 +1296,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                     height={340}
                   />
                   <SimpleTable
-                    headers={["Trạng thái", "Số lượng", "Tỉ trọng"]}
+                    headers={["Trạng thái", "Số lượng", "Tỷ trọng"]}
                     rows={overviewOrderGroupRows.map((item) => [
                       item.status,
                       formatCompactNumber(item.count),
@@ -1173,9 +1311,8 @@ function AdminReportsDashboard({ type = "overview" }) {
           <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-2">
             <DashboardCard
               delay={0.24}
-              title="Cơ cấu thanh toán"
-              description="Tổng giá trị thanh toán theo phương thức (COD vs VNPAY) trong kỳ."
-              icon={<FiDollarSign className="text-amber-500" size={20} />}
+              title="Cơ cấu thanh toán gộp"
+              description="Tổng giá trị thanh toán theo phương thức (COD vs VNPAY) trong kỳ, chưa trừ hoàn tiền."
             >
               {loading ? (
                 <LoadingBlock />
@@ -1188,7 +1325,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                     height={340}
                   />
                   <SimpleTable
-                    headers={["Phương thức", "Giá trị", "Tỉ trọng"]}
+                    headers={["Phương thức", "Giá trị", "Tỷ trọng"]}
                     rows={paymentMethodGroup.map((item) => [
                       item.label,
                       formatCurrency(item.value),
@@ -1204,7 +1341,7 @@ function AdminReportsDashboard({ type = "overview" }) {
             <DashboardCard
               delay={0.24}
               title="Biến động theo thời gian"
-              description="Diễn biến doanh thu gồm: Doanh thu thuần, Hoàn trả và Doanh thu ròng theo ngày hoặc tháng."
+              description="Diễn biến doanh thu gồm: Doanh thu gộp, Hoàn tiền và Thanh toán thực nhận theo ngày hoặc tháng."
               icon={<FiCalendar className="text-sky-500" size={20} />}
             >
               {loading ? (
@@ -1223,7 +1360,7 @@ function AdminReportsDashboard({ type = "overview" }) {
           <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
             <DashboardCard
               delay={0.28}
-              title="Top 5 Sản phẩm bán chạy"
+              title="Top 5 sản phẩm bán chạy"
               description="Những sản phẩm có số lượng bán ra cao nhất trong kỳ."
               icon={<FiPackage className="text-violet-500" size={20} />}
             >
@@ -1244,7 +1381,7 @@ function AdminReportsDashboard({ type = "overview" }) {
 
             <DashboardCard
               delay={0.32}
-              title="Top 5 Khách hàng VIP"
+              title="Top 5 khách hàng VIP"
               description="Các khách hàng có tổng chi tiêu lớn nhất trong kỳ."
               icon={<FiUsers className="text-amber-500" size={20} />}
             >
@@ -1271,27 +1408,19 @@ function AdminReportsDashboard({ type = "overview" }) {
           <DashboardCard
             delay={0.16}
             title="Phân bố trạng thái đơn hàng"
-            description="Biểu đồ và KPI dùng cùng mẫu số Tổng đơn nên % sẽ khớp nhau."
+            description="Biểu đồ dùng mẫu số Tổng đơn. Đã bỏ bảng chi tiết thừa, chỉ giữ biểu đồ và các card trạng thái."
             icon={<FiShoppingBag className="text-blue-500" size={20} />}
           >
             {loading ? (
               <LoadingBlock />
             ) : (
               <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+                <div className="flex justify-center">
                   <Chart
                     options={orderDonutOptions}
                     series={orderDonutSeries}
                     type="donut"
                     height={340}
-                  />
-                  <SimpleTable
-                    headers={["Trạng thái", "Số lượng", "Tỉ trọng"]}
-                    rows={orderStatusRows.map((item) => [
-                      item.status,
-                      formatCompactNumber(item.count),
-                      `${item.percent}%`,
-                    ])}
                   />
                 </div>
 
@@ -1314,9 +1443,9 @@ function AdminReportsDashboard({ type = "overview" }) {
                     {
                       key: "Shipping",
                       label: "Shipping",
-                      accent: "border-sky-300",
-                      bg: "bg-sky-50",
-                      text: "text-sky-700",
+                      accent: "border-blue-200",
+                      bg: "bg-blue-50",
+                      text: "text-blue-700",
                     },
                     {
                       key: "Completed",
@@ -1371,7 +1500,7 @@ function AdminReportsDashboard({ type = "overview" }) {
           <DashboardCard
             delay={0.2}
             title="KPI đơn hàng"
-            description="Tỉ lệ Refunded/Completed/Cancelled tính trên Tổng đơn và khớp với bảng Phân bố trạng thái."
+            description="3 tỷ lệ này dùng cùng mẫu số Tổng đơn để khớp với biểu đồ và bảng Nhóm đơn hàng."
             icon={<FiTrendingUp className="text-emerald-500" size={20} />}
           >
             {loading ? (
@@ -1380,18 +1509,18 @@ function AdminReportsDashboard({ type = "overview" }) {
               <div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                   <KpiBox
-                    title="Tỉ lệ hoàn trả"
-                    value={`${toNumber(orderStatusShares.Refunded).toFixed(1)}%`}
+                    title="Tỷ lệ hoàn tiền"
+                    value={`${kpiRates.refundRate.toFixed(1)}%`}
                     sub="Refunded / Tổng đơn"
                   />
                   <KpiBox
-                    title="Tỉ lệ hoàn tất"
-                    value={`${toNumber(orderStatusShares.Completed).toFixed(1)}%`}
+                    title="Tỷ lệ hoàn tất"
+                    value={`${kpiRates.completionRate.toFixed(1)}%`}
                     sub="Completed / Tổng đơn"
                   />
                   <KpiBox
-                    title="Tỉ lệ hủy đơn"
-                    value={`${toNumber(orderStatusShares.Cancelled).toFixed(1)}%`}
+                    title="Tỷ lệ hủy đơn"
+                    value={`${kpiRates.cancelRate.toFixed(1)}%`}
                     sub="Cancelled / Tổng đơn"
                   />
                   <KpiBox
@@ -1430,7 +1559,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                   </div>
                   <div className="mt-3">
                     <SimpleTable
-                      headers={["Nhóm doanh thu", "Giá trị", "Tỉ trọng"]}
+                      headers={["Nhóm doanh thu", "Giá trị", "Tỷ trọng"]}
                       rows={revenueGroup.map((item) => [
                         item.label,
                         formatCurrency(item.value),
@@ -1446,7 +1575,7 @@ function AdminReportsDashboard({ type = "overview" }) {
           <DashboardCard
             delay={0.24}
             title="Top đơn hàng giá trị cao"
-            description="Các đơn hàng bán chạy nhất theo tổng giá trị."
+            description="Các đơn hàng có giá trị lớn nhất theo tổng tiền."
             icon={<FiDollarSign className="text-amber-500" size={20} />}
           >
             {loading ? (
@@ -1563,7 +1692,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                       {formatCurrency(totalFrameRevenue)}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Tỉ trọng: {productRevenueBreakdown?.[0]?.share || 0}%
+                      Tỷ trọng: {productRevenueBreakdown?.[0]?.share || 0}%
                     </p>
                   </div>
                   <div className="rounded-xl bg-slate-50 p-4 text-center">
@@ -1574,7 +1703,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                       {formatCurrency(totalLensRevenue)}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Tỉ trọng: {productRevenueBreakdown?.[1]?.share || 0}%
+                      Tỷ trọng: {productRevenueBreakdown?.[1]?.share || 0}%
                     </p>
                   </div>
                 </div>
@@ -1669,6 +1798,19 @@ function AdminReportsDashboard({ type = "overview" }) {
                     </div>
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <div className="text-xs text-slate-500">Bị hủy</div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">
+                        {formatCompactNumber(inventorySummary.total.cancelled)}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Gọng{" "}
+                        {formatCompactNumber(inventorySummary.frame.cancelled)}{" "}
+                        · Lens{" "}
+                        {formatCompactNumber(inventorySummary.lens.cancelled)}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
                       <div className="text-xs text-slate-500">Tổng hàng</div>
                       <div className="mt-1 text-lg font-semibold text-slate-900">
                         {formatCompactNumber(inventorySummary.total.items)}
@@ -1701,6 +1843,16 @@ function AdminReportsDashboard({ type = "overview" }) {
                         Gọng {inventorySummary.frame.revenueShareInTotal}% ·
                         Lens {inventorySummary.lens.revenueShareInTotal}%
                       </div>
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        Hoàn tiền:{" "}
+                        {formatCurrency(inventorySummary.total.refundedRevenue)}
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-500">
+                        Hủy:{" "}
+                        {formatCurrency(
+                          inventorySummary.total.cancelledRevenue,
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1713,17 +1865,19 @@ function AdminReportsDashboard({ type = "overview" }) {
                     "Gọng",
                     "Màu (biến thể)",
                     "Đã bán",
+                    "Bị hủy",
                     "Tồn kho",
                     "Pre-order",
-                    "Tỉ trọng SL",
+                    "Tỷ trọng SL",
                     "Bán/Tổng hàng",
                     "Doanh thu",
-                    "Tỉ trọng DT",
+                    "Tỷ trọng DT",
                   ]}
                   rows={frameInventoryTable.map((item) => [
                     item.name,
                     item.color,
                     formatCompactNumber(item.sold),
+                    formatCompactNumber(item.cancelled),
                     formatCompactNumber(item.stock),
                     formatCompactNumber(item.preorder),
                     `${item.soldShare}%`,
@@ -1742,16 +1896,18 @@ function AdminReportsDashboard({ type = "overview" }) {
                     "Lens",
                     "Màu (biến thể)",
                     "Đã bán",
+                    "Bị hủy",
                     "Tồn kho",
-                    "Tỉ trọng SL",
+                    "Tỷ trọng SL",
                     "Bán/Tổng hàng",
                     "Doanh thu",
-                    "Tỉ trọng DT",
+                    "Tỷ trọng DT",
                   ]}
                   rows={lensInventoryTable.map((item) => [
                     item.name,
                     item.color,
                     formatCompactNumber(item.sold),
+                    formatCompactNumber(item.cancelled),
                     formatCompactNumber(item.stock),
                     `${item.soldShare}%`,
                     `${item.soldInItemsShare}%`,
@@ -1779,25 +1935,25 @@ function AdminReportsDashboard({ type = "overview" }) {
                     value={productConclusion?.topQty?.productName || "N/A"}
                     sub={`SL: ${formatCompactNumber(
                       productConclusion?.topQty?.quantitySold,
-                    )} • ${productConclusion.topQtyShare}% tổng SL`}
+                    )} · ${productConclusion.topQtyShare}% tổng SL`}
                   />
                   <KpiBox
                     title="Top theo doanh thu"
-                    value={productConclusion?.topRev?.productName || "N/A"}
+                    value={productConclusion?.topRev?.name || "N/A"}
                     sub={`DT: ${formatCurrency(
-                      productConclusion?.topRev?.revenue,
-                    )} • ${productConclusion.topRevShare}% DT sản phẩm`}
+                      productConclusion?.topRev?.total,
+                    )} · ${productConclusion.topRevShare}% DT sản phẩm`}
                   />
                   <KpiBox
                     title="Refund cao nhất"
-                    value={productConclusion?.refundedMax?.productName || "N/A"}
+                    value={productConclusion?.refundedMax?.name || "N/A"}
                     sub={`Refund: ${formatCurrency(
                       Math.abs(
                         toNumber(
-                          productConclusion?.refundedMax?.refundedRevenue,
+                          productConclusion?.refundedMax?.refunded,
                         ),
                       ),
-                    )} • ${productConclusion.refundedMaxShare}% DT sản phẩm`}
+                    )} · ${productConclusion.refundedMaxShare}% DT sản phẩm`}
                   />
                 </div>
 
@@ -1922,14 +2078,14 @@ function AdminReportsDashboard({ type = "overview" }) {
                   headers={[
                     "Khách hàng",
                     "Tổng đơn",
-                    "Tỉ trọng đơn",
+                    "Tỷ trọng đơn",
                     "Đơn hoàn tất",
                     "Đơn hủy",
                     "Tổng chi",
-                    "Tỉ trọng chi",
+                    "Tỷ trọng chi",
                     "Sản phẩm mua nhiều nhất",
                   ]}
-                  rows={topCustomers.map((item) => {
+                  rows={topCustomersWithSpendShare.map((item) => {
                     const orderShare =
                       customerSummary.totalOrders > 0
                         ? Number(
@@ -1940,17 +2096,6 @@ function AdminReportsDashboard({ type = "overview" }) {
                             ).toFixed(1),
                           )
                         : 0;
-                    const spendShare =
-                      customerSummary.totalRevenue > 0
-                        ? Number(
-                            (
-                              (toNumber(item?.totalSpent) /
-                                customerSummary.totalRevenue) *
-                              100
-                            ).toFixed(1),
-                          )
-                        : 0;
-
                     return [
                       item?.customerName || "Guest",
                       formatCompactNumber(item?.totalOrders),
@@ -1958,7 +2103,7 @@ function AdminReportsDashboard({ type = "overview" }) {
                       formatCompactNumber(item?.completedOrders),
                       formatCompactNumber(item?.cancelledOrders),
                       formatCurrency(item?.totalSpent),
-                      `${spendShare}%`,
+                      `${toNumber(item?.spendShare)}%`,
                       `${item?.favoriteProductName || "N/A"} (${formatCompactNumber(
                         item?.favoriteProductQuantity,
                       )})`,
@@ -1982,38 +2127,27 @@ function AdminReportsDashboard({ type = "overview" }) {
                 headers={[
                   "Khách hàng",
                   "Số đơn",
-                  "Tỉ trọng đơn",
+                  "Tỷ trọng đơn",
                   "Tổng chi tiêu",
-                  "Tỉ trọng chi",
+                  "Tỷ trọng chi",
                 ]}
-                rows={(analytics?.topCustomersBySpending || []).map((item) => {
+                rows={topCustomersBySpending.map((item) => {
                   const orderShare =
                     customerSummary.totalOrders > 0
                       ? Number(
                           (
-                            (toNumber(item?.orderCount) /
+                            (toNumber(item?.totalOrders) /
                               customerSummary.totalOrders) *
                             100
                           ).toFixed(1),
                         )
                       : 0;
-                  const spendShare =
-                    customerSummary.totalRevenue > 0
-                      ? Number(
-                          (
-                            (toNumber(item?.totalSpent) /
-                              customerSummary.totalRevenue) *
-                            100
-                          ).toFixed(1),
-                        )
-                      : 0;
-
                   return [
                     item?.customerName || "Guest",
-                    formatCompactNumber(item?.orderCount),
+                    formatCompactNumber(item?.totalOrders),
                     `${orderShare}%`,
                     formatCurrency(item?.totalSpent),
-                    `${spendShare}%`,
+                    `${toNumber(item?.spendShare)}%`,
                   ];
                 })}
               />
@@ -2033,39 +2167,17 @@ function AdminReportsDashboard({ type = "overview" }) {
                 headers={[
                   "Khách hàng",
                   "Đơn hủy",
-                  "Tỉ trọng hủy",
+                  "Tỷ trọng hủy",
                   "Tổng đơn",
                   "Tổng chi",
                 ]}
-                rows={[...topCustomers]
-                  .sort(
-                    (a, b) =>
-                      toNumber(b?.cancelledOrders) -
-                      toNumber(a?.cancelledOrders),
-                  )
-                  .map((item) => {
-                    const totalCancelledOrders = toNumber(
-                      analytics?.cancelledOrders,
-                    );
-                    const cancelledShare =
-                      totalCancelledOrders > 0
-                        ? Number(
-                            (
-                              (toNumber(item?.cancelledOrders) /
-                                totalCancelledOrders) *
-                              100
-                            ).toFixed(1),
-                          )
-                        : 0;
-
-                    return [
-                      item?.customerName || "Guest",
-                      formatCompactNumber(item?.cancelledOrders),
-                      `${cancelledShare}%`,
-                      formatCompactNumber(item?.totalOrders),
-                      formatCurrency(item?.totalSpent),
-                    ];
-                  })}
+                rows={cancelledCustomers.map((item) => [
+                  item?.customerName || "Guest",
+                  formatCompactNumber(item?.cancelledOrders),
+                  `${toNumber(item?.cancelledShare)}%`,
+                  formatCompactNumber(item?.totalOrders),
+                  formatCurrency(item?.totalSpent),
+                ])}
               />
             )}
           </DashboardCard>
