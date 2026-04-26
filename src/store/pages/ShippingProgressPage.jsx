@@ -231,6 +231,7 @@ function ShippingProgressPage() {
       return true;
     }
 
+    // fallback when fields are missing
     const remainingAmount = Number(
       currentOrder?.remainingAmount ??
         Number(
@@ -402,6 +403,7 @@ function ShippingProgressPage() {
 
   const isAwaitingManualConfirmation =
     !isRemainingPaid(order) && remainingAmount > 0 && isRemainingMethodCOD;
+  const vnpayPaid = isVnpayPaidOrder(order);
 
   const canShowRemainingPayment =
     String(order?.depositType || "")

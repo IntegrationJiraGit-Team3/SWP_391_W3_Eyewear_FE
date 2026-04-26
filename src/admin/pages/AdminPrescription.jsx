@@ -326,8 +326,6 @@ function DetailModal({ rx, onClose, onApprove, onDecline }) {
                   </tbody>
                 </table>
               </div>
-
-
             </div>
 
             {/* Note */}
@@ -349,9 +347,7 @@ function DetailModal({ rx, onClose, onApprove, onDecline }) {
               {rx.status !== "pending" ? (
                 <div className="px-3 py-2.5 bg-gray-50 rounded-xl text-sm text-gray-600 border border-gray-200 min-h-[60px]">
                   {rx.reviewNote || (
-                    <span className="text-gray-300 italic">
-                      No notes
-                    </span>
+                    <span className="text-gray-300 italic">No notes</span>
                   )}
                 </div>
               ) : (
@@ -458,7 +454,6 @@ function AddOfflineModal({ onClose, onAdd }) {
             form.eyes.left.add !== "" ? parseFloat(form.eyes.left.add) : null,
         },
       },
-
     });
     onClose();
   };
@@ -598,7 +593,6 @@ function AddOfflineModal({ onClose, onAdd }) {
                     ))}
                   </div>
                 ))}
-
               </div>
             </div>
 
@@ -703,16 +697,20 @@ function AdminPrescription() {
         const { getAllOrders } = await import("../services/orderService");
         const allOrders = await getAllOrders();
         // Lọc các đơn đang chờ xử lý hoặc đang đóng gói có toa thuốc
-        const pendingOrders = allOrders.filter(o => (o.status === "pending" || o.status === "processing") && o.hasPrescription);
-        
-        pendingOrders.forEach(order => {
+        const pendingOrders = allOrders.filter(
+          (o) =>
+            (o.status === "pending" || o.status === "processing") &&
+            o.hasPrescription,
+        );
+
+        pendingOrders.forEach((order) => {
           order.orderItems?.forEach((item, idx) => {
             // Chỉ lấy các item có thông tin toa thuốc
             const rx = item.prescription || item;
-            const isRxItem = 
-              item.itemType === "PRESCRIPTION" || 
-              item.isLens || 
-              rx.sphLeft != null || 
+            const isRxItem =
+              item.itemType === "PRESCRIPTION" ||
+              item.isLens ||
+              rx.sphLeft != null ||
               rx.sphRight != null;
 
             if (isRxItem) {
@@ -725,7 +723,7 @@ function AdminPrescription() {
                 userName: order.customer,
                 orderCode: order.code,
                 orderId: order.id,
-                source: "order", 
+                source: "order",
                 status: "pending",
                 createdAt: order.createdAt,
                 ...realRx,
@@ -739,8 +737,8 @@ function AdminPrescription() {
 
       // 3. Hợp nhất
       const combined = [
-        ...profileRx.map(r => ({ ...r, source: r.source || "profile" })),
-        ...orderRx
+        ...profileRx.map((r) => ({ ...r, source: r.source || "profile" })),
+        ...orderRx,
       ];
 
       // 4. Map API fields to component-expected shape
@@ -750,9 +748,15 @@ function AdminPrescription() {
         // false + có ghi chú: Từ chối
         // false + không ghi chú: Chờ duyệt
         let statusValue = "pending";
-        if (rx.status === true || String(rx.status).toLowerCase() === 'approved') {
+        if (
+          rx.status === true ||
+          String(rx.status).toLowerCase() === "approved"
+        ) {
           statusValue = "approved";
-        } else if ((rx.status === false || !rx.status) && (rx.adminNote || rx.reviewNote)) {
+        } else if (
+          (rx.status === false || !rx.status) &&
+          (rx.adminNote || rx.reviewNote)
+        ) {
           statusValue = "declined";
         } else {
           statusValue = "pending";
@@ -763,7 +767,10 @@ function AdminPrescription() {
           prescriptionId: rx.prescriptionId || rx.id,
           customer: rx.customerName || rx.userName || rx.customer || "N/A",
           email: rx.customerEmail || rx.email || "",
-          avatar: rx.avatar || rx.user?.avatar || `https://ui-avatars.com/api/?name=${rx.customerName || rx.userName || "P"}&background=6366f1&color=fff`,
+          avatar:
+            rx.avatar ||
+            rx.user?.avatar ||
+            `https://ui-avatars.com/api/?name=${rx.customerName || rx.userName || "P"}&background=6366f1&color=fff`,
           doctor: rx.doctorName || rx.doctor || "Not updated",
           hospital: rx.hospital || "N/A",
           issuedDate: rx.issuedDate || rx.expirationDate || "N/A",
@@ -772,22 +779,24 @@ function AdminPrescription() {
           source: rx.source || "online",
           orderId: rx.orderId,
           orderCode: rx.orderCode,
-          note: rx.note || (rx.orderCode ? `Rx included with order # ${rx.orderCode}` : ""),
+          note:
+            rx.note ||
+            (rx.orderCode ? `Rx included with order # ${rx.orderCode}` : ""),
           reviewNote: rx.adminNote || rx.reviewNote || "",
 
           imgUrl: rx.imgUrl || rx.imageUrl || "",
           eyes: rx.eyes || {
-            right: { 
-              sphere: rx.sphRight, 
-              cylinder: rx.cylRight, 
-              axis: rx.axisRight, 
-              add: rx.addRight 
+            right: {
+              sphere: rx.sphRight,
+              cylinder: rx.cylRight,
+              axis: rx.axisRight,
+              add: rx.addRight,
             },
-            left: { 
-              sphere: rx.sphLeft, 
-              cylinder: rx.cylLeft, 
-              axis: rx.axisLeft, 
-              add: rx.addLeft 
+            left: {
+              sphere: rx.sphLeft,
+              cylinder: rx.cylLeft,
+              axis: rx.axisLeft,
+              add: rx.addLeft,
             },
           },
         };
@@ -795,7 +804,7 @@ function AdminPrescription() {
 
       // Sắp xếp đơn mới lên đầu
       mapped.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
-      
+
       setPrescriptions(mapped);
     } catch (err) {
       console.error("Lỗi tải danh sách đơn thuốc:", err);
@@ -860,7 +869,9 @@ function AdminPrescription() {
       if (rx?.orderId) {
         try {
           await updateOrderStatus(rx.orderId, "PROCESSING");
-          showToast(`Order #${rx.orderCode || rx.orderId} moved to Processing!`);
+          showToast(
+            `Order #${rx.orderCode || rx.orderId} moved to Processing!`,
+          );
         } catch (orderErr) {
           console.error("Auto-update status failed:", orderErr);
         }
@@ -868,7 +879,9 @@ function AdminPrescription() {
 
       setPrescriptions((prev) =>
         prev.map((item) =>
-          item.id === id ? { ...item, status: "approved", reviewNote: note } : item,
+          item.id === id
+            ? { ...item, status: "approved", reviewNote: note }
+            : item,
         ),
       );
       setViewing((v) =>
@@ -877,17 +890,24 @@ function AdminPrescription() {
       showToast("Prescription approved successfully.");
     } catch (err) {
       console.error("Lỗi duyệt đơn thuốc:", err);
-      showToast("Prescription approval failed: " + (err?.response?.data?.message || err.message), "error");
+      showToast(
+        "Prescription approval failed: " +
+          (err?.response?.data?.message || err.message),
+        "error",
+      );
     }
   }, []);
 
+  // Tương tự handleApprove, ưu tiên dùng prescriptionId để gọi API
   const handleDecline = useCallback(async (id, note, rx) => {
     try {
       const targetId = rx?.prescriptionId || id;
       await declinePrescriptionApi(targetId, note);
       setPrescriptions((prev) =>
         prev.map((item) =>
-          item.id === id ? { ...item, status: "declined", reviewNote: note } : item,
+          item.id === id
+            ? { ...item, status: "declined", reviewNote: note }
+            : item,
         ),
       );
       setViewing((v) =>
@@ -896,21 +916,32 @@ function AdminPrescription() {
       showToast("Prescription declined successfully.");
     } catch (err) {
       console.error("Lỗi từ chối đơn thuốc:", err);
-      showToast("Prescription decline failed: " + (err?.response?.data?.message || err.message), "error");
+      showToast(
+        "Prescription decline failed: " +
+          (err?.response?.data?.message || err.message),
+        "error",
+      );
     }
   }, []);
 
-  const handleAdd = useCallback(async (rxData) => {
-    try {
-      const res = await createOfflinePrescriptionApi(rxData);
-      // Reload data from API after adding
-      fetchPrescriptions();
-      showToast("Prescription created successfully.");
-    } catch (err) {
-      console.error("Lỗi tạo đơn thuốc offline:", err);
-      showToast("Prescription creation failed: " + (err?.response?.data?.message || err.message), "error");
-    }
-  }, [fetchPrescriptions]);
+  const handleAdd = useCallback(
+    async (rxData) => {
+      try {
+        const res = await createOfflinePrescriptionApi(rxData);
+        // Reload data from API after adding
+        fetchPrescriptions();
+        showToast("Prescription created successfully.");
+      } catch (err) {
+        console.error("Lỗi tạo đơn thuốc offline:", err);
+        showToast(
+          "Prescription creation failed: " +
+            (err?.response?.data?.message || err.message),
+          "error",
+        );
+      }
+    },
+    [fetchPrescriptions],
+  );
 
   /* ── stats ── */
   const stats = useMemo(

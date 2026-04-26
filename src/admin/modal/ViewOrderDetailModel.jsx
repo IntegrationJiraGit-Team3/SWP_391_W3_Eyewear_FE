@@ -353,6 +353,7 @@ function ViewOrderDetailsModal({ order, onClose, onUpdateStatus }) {
 
     try {
       setSavingPayment(true);
+
       await updatePaymentStatus(order.id, "PAID_FULL");
       alert("Payment marked as completed successfully.");
       onClose?.();

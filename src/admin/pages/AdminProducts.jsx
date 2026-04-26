@@ -109,7 +109,9 @@ const ProductRow = memo(
           </td>
 
           {/* Stock */}
-          <td className="px-6 py-4 text-center">{renderStock(product.stock)}</td>
+          <td className="px-6 py-4 text-center">
+            {renderStock(product.stock)}
+          </td>
 
           {/* Actions */}
           <td className="px-6 py-4">
@@ -213,7 +215,7 @@ function AdminProducts() {
   const [selected, setSelected] = useState([]);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
-  const { showToast } = useToast();
+  // const { showToast } = useToast();
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
@@ -327,8 +329,7 @@ function AdminProducts() {
     } catch (err) {
       console.error("Delete error: ", err);
       const message = err.response?.data?.message || "Delete failed!";
-
-      showToast(message, "error");
+      showToast(message, { type: "error" });
     }
 
     setConfirmDelete(null);
@@ -373,7 +374,9 @@ function AdminProducts() {
       {/* ── HEADER ── */}
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-800">Product Management</h1>
+          <h1 className="text-xl font-bold text-gray-800">
+            Product Management
+          </h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {filteredProducts.length} / {products.length} products
           </p>

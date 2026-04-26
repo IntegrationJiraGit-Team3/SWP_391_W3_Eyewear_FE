@@ -65,7 +65,7 @@ function AdminOrders() {
   const fetchOrders = useCallback(async () => {
     try {
       const data = await getAllOrders();
-
+      // After fetching orders, also fetch all return requests to determine which orders are in refund process
       const returnRes = await getAllReturnRequestsApi().catch(() => null);
       const returnRequests = returnRes?.data?.data || [];
 

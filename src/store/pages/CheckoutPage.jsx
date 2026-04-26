@@ -104,8 +104,7 @@ function CheckoutPage() {
       user = null;
     }
 
-    // Allow guest checkout — don't redirect to login
-    // we'll just check if there's a local cart if no user
+    // ✅ HÀM LOAD GIỎ HÀNG CHUNG CHO CẢ USER VÀ GUEST
     const fetchCart = async () => {
       try {
         let cartData = [];

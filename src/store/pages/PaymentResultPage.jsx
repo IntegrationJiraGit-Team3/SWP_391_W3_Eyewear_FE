@@ -55,6 +55,7 @@ function PaymentResultPage() {
 
       let pendingContext = null;
       try {
+        const orderInfo = searchParams.get("vnp_OrderInfo");
         const pendingContextRaw = localStorage.getItem(
           "vnpay:pendingRemainingPayment",
         );
@@ -108,7 +109,7 @@ function PaymentResultPage() {
               </svg>
             </div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
-              VNPay Payment Successful!
+              VNPay Thanh toán thành công!
             </h2>
             <p className="text-gray-600 mb-6">
               Transaction Code: {vnp_TransactionNo}
@@ -132,7 +133,7 @@ function PaymentResultPage() {
               </svg>
             </div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
-              Payment Failed!
+              Thanh toán thất bại!
             </h2>
             <p className="text-gray-600 mb-6">
               The payment was not completed. Your order will stay pending for up
@@ -152,7 +153,7 @@ function PaymentResultPage() {
             to="/"
             className="w-full rounded-lg border border-gray-200 py-3 font-semibold text-gray-700 hover:bg-gray-50"
           >
-            Back to Home
+            Quay lai trang chủ
           </Link>
         </div>
       </div>

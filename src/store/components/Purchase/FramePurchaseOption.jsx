@@ -2,12 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 export default function FramePurchaseOptions({ product }) {
-
   const [type, setType] = useState("frame");
   const navigate = useNavigate();
 
   const handleContinue = () => {
-
     if (type === "frame") {
       // add frame to cart
     }
@@ -15,20 +13,17 @@ export default function FramePurchaseOptions({ product }) {
     if (type === "lens") {
       navigate(`/lens-options/${product.id}`);
     }
-
+    // For prescription, we can either navigate to a prescription form or add to cart with a note to contact customer support for prescription details
     if (type === "prescription") {
       navigate(`/prescription/${product.id}`);
     }
-
   };
 
   return (
     <div className="mt-6">
-
       <h3 className="font-semibold mb-2">Purchase Options</h3>
 
       <div className="flex flex-col gap-2">
-
         <label className="flex gap-2">
           <input
             type="radio"
@@ -58,7 +53,6 @@ export default function FramePurchaseOptions({ product }) {
           />
           Frame + Prescription
         </label>
-
       </div>
 
       <button
@@ -67,7 +61,6 @@ export default function FramePurchaseOptions({ product }) {
       >
         Continue
       </button>
-
     </div>
   );
 }

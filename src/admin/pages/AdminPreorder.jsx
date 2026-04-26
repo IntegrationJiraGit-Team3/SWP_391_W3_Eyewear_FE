@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState, memo, useEffect } from "react";
 import {
+  approvePreorderService,
   getPreorderItemsService,
   getStockVariantById,
-  updateStockService,
 } from "../services/preOrderService";
 import {
   FiPackage,
@@ -18,7 +18,6 @@ import {
   FiRefreshCw,
   FiFileText,
 } from "react-icons/fi";
-import { updateOrderStatus } from "../services/orderService";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "../../context/ToastContext";
 
@@ -82,7 +81,7 @@ const STEP_COLORS = {
 };
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   HELPERS
+    PRE-ORDER STEPS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
 const colorOf = (step) => STEP_COLORS[step.color] || STEP_COLORS.gray;
@@ -539,7 +538,7 @@ export default function AdminPreorders() {
       await fetchPreorder();
     } catch (error) {
       console.error(error);
-      showToast("Batch processing interrupted by an error.", "error");
+      showToast("Batch approval failed.", "error");
     } finally {
       setIsProcessing(false);
     }

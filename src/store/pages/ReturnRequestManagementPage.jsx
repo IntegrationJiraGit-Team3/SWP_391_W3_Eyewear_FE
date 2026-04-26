@@ -120,6 +120,8 @@ function ReturnRequestManagementPage() {
 
   const [orderCodeCache] = useState(() => new Map());
 
+  const [orderCodeCache] = useState(() => new Map());
+
   const navigate = useNavigate();
   const role = getCurrentRoleFromToken();
 
@@ -149,8 +151,8 @@ function ReturnRequestManagementPage() {
       setError(
         backendMessage ||
           (status
-            ? `Failed to load return requests (HTTP ${status})`
-            : "Failed to load return requests"),
+            ? `Không thể tải danh sách yêu cầu đổi/trả (HTTP ${status})`
+            : "Không thể tải danh sách yêu cầu đổi/trả"),
       );
     } finally {
       setLoading(false);
@@ -224,10 +226,10 @@ function ReturnRequestManagementPage() {
         return approveReturnRequestApi(item.requestId);
 
       case "REJECT": {
-        const reason = window.prompt("Enter rejection reason:");
+        const reason = window.prompt("Nhập lý do từ chối:");
         if (reason === null) return null;
         if (!reason.trim()) {
-          alert("Please enter rejection reason");
+          alert("Vui lòng nhập lý do từ chối");
           return null;
         }
         return rejectReturnRequestApi(item.requestId, {
@@ -242,10 +244,10 @@ function ReturnRequestManagementPage() {
         return markRefundPendingApi(item.requestId);
 
       case "REFUND_INVALID": {
-        const note = window.prompt("Enter invalid refund info reason:");
+        const note = window.prompt("Nhập lý do thông tin hoàn tiền không hợp lệ:");
         if (note === null) return null;
         if (!note.trim()) {
-          alert("Please enter reason");
+          alert("Vui lòng nhập lý do");
           return null;
         }
         return markRefundInvalidApi(item.requestId, {
@@ -255,7 +257,7 @@ function ReturnRequestManagementPage() {
 
       case "REFUNDED": {
         const transactionReference = getOrderBasedTransactionReference(item);
-        const note = "Confirmed by admin";
+        const note = "Xác nhận bởi quản trị viên";
 
         return markRefundedApi(item.requestId, {
           paymentMethod: "BANK_TRANSFER",
