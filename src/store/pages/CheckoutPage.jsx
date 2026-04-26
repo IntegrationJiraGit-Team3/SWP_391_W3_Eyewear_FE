@@ -18,10 +18,7 @@ import {
 } from "../services/cartService";
 
 import { checkoutOrder, createVNPayPayment } from "../services/checkoutService";
-import {
-  cancelPendingPayment,
-  getOrderDetails,
-} from "../services/orderService";
+import { getOrderDetails } from "../services/orderService";
 import { useToast } from "../../context/ToastContext";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -262,33 +259,34 @@ function CheckoutPage() {
   const [paymentWindow, setPaymentWindow] = useState(null);
   const [waitingPayment, setWaitingPayment] = useState(false);
   const [pendingOrderId, setPendingOrderId] = useState(null);
+  const [pendingPaymentContext, setPendingPaymentContext] = useState(null);
   const paymentHandledRef = useRef(false);
 
-  const clearPaymentState = useCallback(() => {
+  const clearPaymentState = useCallback((options = {}) => {
+    const { preservePendingPayment = false } = options;
     setWaitingPayment(false);
     setPlacing(false);
-    setPendingOrderId(null);
     setPaymentWindow(null);
+    if (!preservePendingPayment) {
+      setPendingOrderId(null);
+      setPendingPaymentContext(null);
+    }
   }, []);
 
-  const cancelPendingOrderAndExit = useCallback(
-    async (orderId, message) => {
-      if (!orderId) {
-        paymentHandledRef.current = true;
-        clearPaymentState();
-        if (message) showToast(message);
-        return;
-      }
-
-      try {
-        await cancelPendingPayment(orderId);
-      } catch (err) {
-        console.error("Cancel pending payment failed:", err);
-      } finally {
-        paymentHandledRef.current = true;
-        clearPaymentState();
-        if (message) showToast(message);
-      }
+  const releasePendingPayment = useCallback(
+    (context, message) => {
+      paymentHandledRef.current = true;
+      setPendingOrderId(context?.orderId ?? null);
+      setPendingPaymentContext(
+        context
+          ? {
+              ...context,
+              pendingSince: context.pendingSince || Date.now(),
+            }
+          : null,
+      );
+      clearPaymentState({ preservePendingPayment: true });
+      if (message) showToast(message);
     },
     [clearPaymentState],
   );
@@ -313,6 +311,103 @@ function CheckoutPage() {
     })();
   }, [clearPaymentState, navigate]);
 
+  const openVnpayWindow = useCallback(
+    async (context) => {
+      const orderId = context?.orderId;
+      const amount = Math.round(Number(context?.amount || 0));
+      const pendingSince = context?.pendingSince || Date.now();
+
+      if (!orderId || amount <= 0) {
+        throw new Error("Missing VNPay payment context");
+      }
+
+      paymentHandledRef.current = false;
+      setPendingOrderId(orderId);
+      setPendingPaymentContext({ orderId, amount, pendingSince });
+
+      const paymentUrl = await createVNPayPayment(amount, orderId);
+      const width = 600;
+      const height = 700;
+      const left = window.innerWidth / 2 - width / 2;
+      const top = window.innerHeight / 2 - height / 2;
+      const popup = window.open(
+        paymentUrl,
+        "VNPay Payment",
+        `width=${width},height=${height},left=${left},top=${top}`,
+      );
+
+      if (!popup) {
+        releasePendingPayment(
+          { orderId, amount, pendingSince },
+          "Unable to open VNPay window. You can click Place Order again within 5 minutes.",
+        );
+        return;
+      }
+
+      setPaymentWindow(popup);
+      setWaitingPayment(true);
+      let popupCloseHandled = false;
+
+      const pollInterval = setInterval(async () => {
+        if (paymentHandledRef.current) {
+          clearInterval(pollInterval);
+          return;
+        }
+
+        if (popup.closed && !popupCloseHandled) {
+          popupCloseHandled = true;
+          clearInterval(pollInterval);
+
+          try {
+            const latestOrder = await getOrderDetails(orderId);
+            const isPaid =
+              latestOrder.paymentStatus === "PAID" ||
+              latestOrder.paymentStatus === "PAID_FULL";
+
+            if (isPaid) {
+              finalizeVnPaySuccess();
+              return;
+            }
+          } catch (statusErr) {
+            console.error("Final payment status check failed:", statusErr);
+          }
+
+          releasePendingPayment(
+            { orderId, amount, pendingSince },
+            "Payment was not completed. You can click Place Order again within 5 minutes to continue.",
+          );
+          return;
+        }
+
+        try {
+          const updatedOrder = await getOrderDetails(orderId);
+
+          if (
+            updatedOrder.paymentStatus === "PAID" ||
+            updatedOrder.paymentStatus === "PAID_FULL"
+          ) {
+            clearInterval(pollInterval);
+            popup?.close();
+            finalizeVnPaySuccess();
+          }
+        } catch (pollErr) {
+          console.error("Polling error:", pollErr);
+        }
+      }, 3000);
+
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        if (!paymentHandledRef.current) {
+          releasePendingPayment(
+            { orderId, amount, pendingSince },
+            "Payment session timed out. You can click Place Order again within 5 minutes to continue.",
+          );
+        }
+      }, 300000);
+    },
+    [finalizeVnPaySuccess, releasePendingPayment],
+  );
+
   useEffect(() => {
     const handleVnPayResult = async (payload) => {
       if (!payload || payload.type !== "VNPAY_RESULT") return;
@@ -323,9 +418,12 @@ function CheckoutPage() {
         return;
       }
 
-      await cancelPendingOrderAndExit(
-        pendingOrderId,
-        "Payment failed or cancelled.",
+      releasePendingPayment(
+        pendingPaymentContext || {
+          orderId: pendingOrderId,
+          pendingSince: Date.now(),
+        },
+        "Payment was not completed. You can click Place Order again within 5 minutes.",
       );
     };
 
@@ -350,7 +448,12 @@ function CheckoutPage() {
       window.removeEventListener("message", onMessage);
       window.removeEventListener("storage", onStorage);
     };
-  }, [cancelPendingOrderAndExit, finalizeVnPaySuccess, pendingOrderId]);
+  }, [
+    finalizeVnPaySuccess,
+    pendingOrderId,
+    pendingPaymentContext,
+    releasePendingPayment,
+  ]);
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
@@ -379,6 +482,43 @@ function CheckoutPage() {
     setPlacing(true);
 
     try {
+      if (paymentMethod === "VNPAY" && pendingPaymentContext?.orderId) {
+        const pendingSince = Number(pendingPaymentContext.pendingSince || 0);
+        if (pendingSince && Date.now() - pendingSince > 300000) {
+          setPendingPaymentContext(null);
+          setPendingOrderId(null);
+          setPlacing(false);
+          showToast("The previous VNPay session expired. Please place the order again.");
+          return;
+        }
+
+        try {
+          const latestOrder = await getOrderDetails(pendingPaymentContext.orderId);
+          const paymentStatus = String(latestOrder?.paymentStatus || "").toUpperCase();
+          const orderStatus = String(
+            latestOrder?.rawStatus || latestOrder?.status || "",
+          ).toUpperCase();
+
+          if (["PAID", "PAID_FULL"].includes(paymentStatus)) {
+            finalizeVnPaySuccess();
+            return;
+          }
+
+          if (["CANCELLED", "CANCELED", "REFUND", "REFUNDED"].includes(orderStatus)) {
+            setPendingPaymentContext(null);
+            setPendingOrderId(null);
+            setPlacing(false);
+            showToast("This pending order is no longer payable. Please place a new order.");
+            return;
+          }
+        } catch (existingOrderError) {
+          console.error("Load pending order failed:", existingOrderError);
+        }
+
+        await openVnpayWindow(pendingPaymentContext);
+        return;
+      }
+
       const order = await checkoutOrder(
         formData,
         shippingFee,
@@ -388,8 +528,6 @@ function CheckoutPage() {
 
       // ✅ VNPay Payment Flow (Popup + Polling)
       if (paymentMethod === "VNPAY") {
-        paymentHandledRef.current = false;
-        setPendingOrderId(order.orderId);
         let amountToPay = 0;
         const hasPreorder = cartItems.some((i) => i.isPreorder);
 
@@ -405,91 +543,11 @@ function CheckoutPage() {
           amountToPay = order.finalPrice;
         }
 
-        const paymentUrl = await createVNPayPayment(amountToPay, order.orderId);
-
-        // Open Popup
-        const width = 600,
-          height = 700;
-        const left = window.innerWidth / 2 - width / 2;
-        const top = window.innerHeight / 2 - height / 2;
-        const popup = window.open(
-          paymentUrl,
-          "VNPay Payment",
-          `width=${width},height=${height},left=${left},top=${top}`,
-        );
-
-        if (!popup) {
-          await cancelPendingOrderAndExit(
-            order.orderId,
-            "Unable to open VNPay window. Please allow popups and try again.",
-          );
-          return;
-        }
-
-        setPaymentWindow(popup);
-        setWaitingPayment(true);
-        let popupCloseHandled = false;
-
-        // Start Polling backend for payment confirmation
-        const pollInterval = setInterval(async () => {
-          if (paymentHandledRef.current) {
-            clearInterval(pollInterval);
-            return;
-          }
-
-          if (popup.closed && !popupCloseHandled) {
-            popupCloseHandled = true;
-            clearInterval(pollInterval);
-
-            (async () => {
-              try {
-                const latestOrder = await getOrderDetails(order.orderId);
-                const isPaid =
-                  latestOrder.paymentStatus === "PAID" ||
-                  latestOrder.paymentStatus === "PAID_FULL";
-
-                if (isPaid) {
-                  finalizeVnPaySuccess();
-                  return;
-                }
-              } catch (statusErr) {
-                console.error("Final payment status check failed:", statusErr);
-              }
-
-              await cancelPendingOrderAndExit(
-                order.orderId,
-                "Payment window closed.",
-              );
-            })();
-
-            return;
-          }
-
-          try {
-            const updatedOrder = await getOrderDetails(order.orderId);
-
-            if (
-              updatedOrder.paymentStatus === "PAID" ||
-              updatedOrder.paymentStatus === "PAID_FULL"
-            ) {
-              clearInterval(pollInterval);
-              popup?.close();
-              finalizeVnPaySuccess();
-              return;
-            }
-          } catch (pollErr) {
-            console.error("Polling error:", pollErr);
-          }
-        }, 3000);
-
-        // Auto-stop polling after 10 minutes if still unresolved
-        setTimeout(() => {
-          clearInterval(pollInterval);
-          if (!paymentHandledRef.current) {
-            clearPaymentState();
-            showToast("Payment confirmation timeout. Please check My Orders.");
-          }
-        }, 600000);
+        await openVnpayWindow({
+          orderId: order.orderId,
+          amount: amountToPay,
+          pendingSince: Date.now(),
+        });
         return;
       }
 
@@ -717,17 +775,15 @@ function CheckoutPage() {
                 <div className="flex-1 min-w-0 flex justify-between">
                   <div>
                     <p className="font-medium truncate pr-2">{item.name}</p>
+
                     <p className="text-xs text-stone-400">
                       Qty: {item.quantity} · {item.price.toLocaleString()}₫
                     </p>
-                    {item.isPreorder && (
-                      <p className="text-[10px] text-amber-600 font-bold mt-0.5 tracking-tight uppercase">
-                        Pre-order item
-                      </p>
-                    )}
-                    {item.isLens && !item.isPreorder && (
-                      <p className="text-[10px] text-indigo-500 font-bold mt-0.5 tracking-tight uppercase">
-                        Prescription Order
+
+                    {/* 👉 ADD SIZE HERE */}
+                    {!item.isLens && item.variant?.frameSize && (
+                      <p className="text-[11px] text-stone-400 mt-0.5">
+                        Size: {item.variant.frameSize}
                       </p>
                     )}
                   </div>
@@ -849,14 +905,17 @@ function CheckoutPage() {
                 <button
                   onClick={async () => {
                     paymentWindow?.close();
-                    await cancelPendingOrderAndExit(
-                      pendingOrderId,
-                      "Payment cancelled.",
+                    releasePendingPayment(
+                      pendingPaymentContext || {
+                        orderId: pendingOrderId,
+                        pendingSince: Date.now(),
+                      },
+                      "Payment was not completed. You can click Place Order again within 5 minutes.",
                     );
                   }}
                   className="w-full py-3 rounded-2xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold uppercase tracking-widest transition-colors"
                 >
-                  I cancelled payment
+                  Continue later
                 </button>
               </div>
             </motion.div>

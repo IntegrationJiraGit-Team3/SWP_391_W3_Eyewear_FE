@@ -5,6 +5,7 @@ import { GoogleLogin } from "@react-oauth/google";
 import { jwtDecode } from "jwt-decode";
 import { loginGmail } from "../services/authService";
 import { addToCartService } from "../services/cartService";
+import { useToast } from "../../context/ToastContext";
 
 /* ── helper: merge guest cart into backend ── */
 async function mergeGuestCart() {
@@ -111,6 +112,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from || "/";
+  const { showToast } = useToast();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -126,10 +128,12 @@ export default function LoginPage() {
 
       // Merge guest cart into backend
       await mergeGuestCart();
-
-      if (decoded.role === "ADMIN" || decoded.role === "OPERATIONAL_STAFF")
-        navigate("/dashboard");
-      else navigate(from);
+      showToast("Login successful!");
+      if (decoded.role === "ADMIN" || decoded.role === "OPERATIONAL_STAFF") {
+        navigate("/dashboard", { replace: true });
+      } else {
+        navigate(from, { replace: true });
+      }
     } catch (error) {
       const status = error.status;
       console.log("Error Login with Status: ", status);
@@ -166,7 +170,15 @@ export default function LoginPage() {
       // Merge guest cart into backend
       await mergeGuestCart();
 
-      navigate(from);
+      showToast("Login successful!");
+      if (
+        userDecode.role === "ADMIN" ||
+        userDecode.role === "OPERATIONAL_STAFF"
+      ) {
+        navigate("/dashboard", { replace: true });
+      } else {
+        navigate(from, { replace: true });
+      }
     } catch (err) {
       console.error("Google login error:", err);
       setError("Google login failed.");

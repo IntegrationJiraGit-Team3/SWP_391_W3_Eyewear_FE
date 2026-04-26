@@ -5,7 +5,9 @@ import {
   FiSearch,
   FiChevronLeft,
   FiBell,
+  FiMoon,
   FiSettings,
+  FiSun,
   FiUser,
   FiLogOut,
   FiTrash2,
@@ -13,6 +15,9 @@ import {
 } from "react-icons/fi";
 import { adminMock } from "../data/adminMock";
 import notificationService from "../../store/services/notificationService";
+import { useToast } from "../../context/ToastContext";
+import ConfirmDialog from "../../shared/common/ConfirmDialog";
+import { useTheme } from "../../context/ThemeContext";
 
 function AdminTopHeader({ onToggleSidebar, collapsed }) {
   const [open, setOpen] = useState(false);
@@ -21,6 +26,9 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
   const menuRef = useRef(null);
   const notifRef = useRef(null);
   const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const [admin, setAdmin] = useState(() => {
     try {
@@ -34,6 +42,8 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
   const handleLogout = () => {
     localStorage.removeItem("currentUser");
     localStorage.removeItem("token");
+    setShowLogoutConfirm(false);
+    showToast("Logout successful!");
     navigate("/login");
   };
 
@@ -156,6 +166,15 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
 
         {/* ── RIGHT ── */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition"
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {isDark ? <FiSun size={18} /> : <FiMoon size={18} />}
+          </button>
+
           {/* Notification bell */}
           <div ref={notifRef} className="relative">
             <button
@@ -372,7 +391,7 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
 
                   <div className="py-1">
                     <button
-                      onClick={handleLogout}
+                      onClick={() => setShowLogoutConfirm(true)}
                       className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-3 text-red-600 hover:bg-red-50 transition"
                     >
                       <FiLogOut size={15} />
@@ -385,6 +404,17 @@ function AdminTopHeader({ onToggleSidebar, collapsed }) {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showLogoutConfirm}
+        title="Confirm logout"
+        message="You are about to sign out of your admin account. Continue?"
+        confirmText="Logout"
+        cancelText="Cancel"
+        danger
+        onConfirm={handleLogout}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </div>
   );
 }

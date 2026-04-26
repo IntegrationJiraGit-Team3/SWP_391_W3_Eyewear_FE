@@ -32,7 +32,11 @@ export const getDashboardSummary = async (fromDate, toDate) => {
   return res.data.data;
 };
 
-export const getDashboardAnalytics = async (fromDate, toDate, groupBy = "DAILY") => {
+export const getDashboardAnalytics = async (
+  fromDate,
+  toDate,
+  groupBy = "DAILY",
+) => {
   const res = await getDashboardAnalyticsApi(fromDate, toDate, groupBy);
   return res.data.data;
 };

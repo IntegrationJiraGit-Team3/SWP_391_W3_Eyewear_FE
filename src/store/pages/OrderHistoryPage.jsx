@@ -11,9 +11,14 @@ import {
   FiRotateCcw,
   FiFileText,
 } from "react-icons/fi";
-import { getMyOrders, cancelOrder } from "../services/orderService";
+import {
+  getMyOrders,
+  cancelOrder,
+  requestRefund,
+} from "../services/orderService";
 import { useToast } from "../../context/ToastContext";
 import { getReturnRequestsByOrderItemApi } from "../api/returnRequestApi";
+import { requestVnpayRefundApi } from "../api/orderApi";
 
 const TABS = [
   "All",
@@ -102,19 +107,51 @@ const isComboOrder = (order) => {
   return hasLens && hasFrame;
 };
 
+const normalizeToken = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
 function OrderHistoryPage() {
   const [orders, setOrders] = useState([]);
   const [returnRequestMap, setReturnRequestMap] = useState({});
   const [activeTab, setActiveTab] = useState("All");
+  const [refreshing, setRefreshing] = useState(false);
+  const [refundFormOrderId, setRefundFormOrderId] = useState(null);
+  const [refundMode, setRefundMode] = useState("AUTO_VNPAY");
+  const [refundForm, setRefundForm] = useState({
+    cancelReason: "",
+    bankAccountNumber: "",
+    bankName: "",
+    bankAccountHolder: "",
+  });
+  const [submittingRefund, setSubmittingRefund] = useState(false);
+
   const { showToast } = useToast();
 
   const loadOrders = useCallback(async () => {
     try {
       const data = await getMyOrders();
-      setOrders(data || []);
+      const list = Array.isArray(data) ? data : [];
+      const sorted = [...list].sort((a, b) => {
+        const aMs =
+          Number(a?.orderDateMs) ||
+          (a?.orderDate ? new Date(a.orderDate).getTime() : 0) ||
+          0;
+        const bMs =
+          Number(b?.orderDateMs) ||
+          (b?.orderDate ? new Date(b.orderDate).getTime() : 0) ||
+          0;
+        return bMs - aMs;
+      });
+
+      setOrders(sorted);
+      return sorted;
     } catch (err) {
       console.error("Load orders error:", err);
       showToast("Failed to load orders");
+      return [];
     }
   }, [showToast]);
 
@@ -148,18 +185,12 @@ function OrderHistoryPage() {
 
   useEffect(() => {
     const initialTimer = setTimeout(async () => {
-      try {
-        const data = await getMyOrders();
-        setOrders(data || []);
-        await loadReturnRequests(data || []);
-      } catch (err) {
-        console.error("Load orders error:", err);
-        showToast("Failed to load orders");
-      }
+      const data = await loadOrders();
+      await loadReturnRequests(data || []);
     }, 0);
 
     return () => clearTimeout(initialTimer);
-  }, [loadReturnRequests, showToast]);
+  }, [loadOrders, loadReturnRequests]);
 
   const getLatestReturnRequest = useCallback(
     (orderItemId) => {
@@ -196,19 +227,148 @@ function OrderHistoryPage() {
     );
   }, [orders, activeTab, getEffectiveOrderStatus]);
 
-  const handleCancel = async (orderId) => {
+  const normalizePaymentToken = useCallback(
+    (value) => normalizeToken(value),
+    [],
+  );
+
+  const isVnpayPaidOrder = useCallback(
+    (order) => {
+      const method = normalizePaymentToken(order?.paymentMethod).replace(
+        /_/g,
+        "",
+      );
+      const status = normalizePaymentToken(order?.paymentStatus);
+
+      if (method !== "VNPAY") return false;
+      return ["PAID", "PAID_FULL"].includes(status);
+    },
+    [normalizePaymentToken],
+  );
+
+  const canCancelOrder = useCallback((effectiveStatus) => {
+    const s = String(effectiveStatus || "").toUpperCase();
+    // BE only allows cancelling before shipping.
+    return ["PENDING", "PREORDER", "PROCESSING"].includes(s);
+  }, []);
+
+  const handleCancel = async (order) => {
+    const effectiveStatus = getEffectiveOrderStatus(order);
+
+    if (!canCancelOrder(effectiveStatus)) {
+      showToast("Orders in pending or processing cannot be cancelled");
+      return;
+    }
+
+    if (isVnpayPaidOrder(order)) {
+      setRefundFormOrderId(order.orderId);
+      setRefundMode("AUTO_VNPAY");
+      setRefundForm({
+        cancelReason: "",
+        bankAccountNumber: "",
+        bankName: "",
+        bankAccountHolder: "",
+      });
+      return;
+    }
+
     const confirmed = window.confirm(
       "Are you sure you want to cancel this order?",
     );
     if (!confirmed) return;
 
     try {
-      await cancelOrder(orderId);
+      await cancelOrder(order.orderId);
       showToast("Order cancelled successfully");
-      await loadOrders();
+      const data = await loadOrders();
+      await loadReturnRequests(data || []);
     } catch (err) {
       console.error("Cancel error:", err);
       showToast(err?.response?.data?.message || "Cancel failed");
+    }
+  };
+
+  const submitCancelAndRefund = async (order) => {
+    const orderId = String(order?.orderId || "").trim();
+    if (!orderId) {
+      showToast("Missing orderId");
+      return;
+    }
+
+    const cancelReason = String(refundForm.cancelReason || "").trim();
+    const bankAccountNumber = String(refundForm.bankAccountNumber || "").trim();
+    const bankName = String(refundForm.bankName || "").trim();
+    const bankAccountHolder = String(refundForm.bankAccountHolder || "").trim();
+
+    if (refundMode === "MANUAL") {
+      if (!bankAccountNumber) {
+        showToast("Bank account number is required");
+        return;
+      }
+      if (!/^\d{6,20}$/.test(bankAccountNumber)) {
+        showToast("Bank account number must be 6-20 digits");
+        return;
+      }
+      if (!bankName) {
+        showToast("Bank name is required");
+        return;
+      }
+      if (!bankAccountHolder) {
+        showToast("Account holder is required");
+        return;
+      }
+    }
+
+    const confirmed = window.confirm(
+      refundMode === "AUTO_VNPAY"
+        ? "Cancel this paid order and submit a VNPay refund request?"
+        : "Cancel this paid order and submit a manual refund request?",
+    );
+    if (!confirmed) return;
+
+    try {
+      setSubmittingRefund(true);
+
+      const statusToken = String(order?.status || "").toUpperCase();
+      const isAlreadyCancelled =
+        statusToken === "CANCELLED" || statusToken === "CANCELED";
+
+      if (!isAlreadyCancelled) {
+        await cancelOrder(orderId);
+      }
+
+      if (refundMode === "AUTO_VNPAY") {
+        await requestVnpayRefundApi(orderId, {
+          note: cancelReason || "Customer requested VNPay refund",
+        });
+
+        showToast("Refund request submitted. Waiting for admin approval.");
+      } else {
+        await requestRefund(orderId, {
+          bankAccountNumber,
+          bankName,
+          bankAccountHolder,
+          note: cancelReason || "Customer requested refund",
+        });
+
+        showToast("Manual refund request submitted successfully.");
+      }
+
+      setRefundFormOrderId(null);
+      setRefundForm({
+        cancelReason: "",
+        bankAccountNumber: "",
+        bankName: "",
+        bankAccountHolder: "",
+      });
+
+      const data = await loadOrders();
+      await loadReturnRequests(data || []);
+    } catch (err) {
+      console.error("Cancel & refund error:", err);
+      showToast(err?.response?.data?.message || "Cancel & refund failed");
+    } finally {
+      setSubmittingRefund(false);
     }
   };
 
@@ -218,13 +378,37 @@ function OrderHistoryPage() {
     );
   };
 
+  const isManualValid =
+    refundForm.bankName.trim() &&
+    /^\d{6,20}$/.test(refundForm.bankAccountNumber.trim()) &&
+    refundForm.bankAccountHolder.trim();
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-12">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">My Orders</h1>
-        <p className="text-gray-500 mt-2">
-          Track orders, view status, and manage your purchases.
-        </p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">My Orders</h1>
+          <p className="text-gray-500 mt-2">
+            Track orders, view status, and manage your purchases.
+          </p>
+        </div>
+
+        <button
+          onClick={async () => {
+            try {
+              setRefreshing(true);
+              const data = await loadOrders();
+              await loadReturnRequests(data || []);
+            } finally {
+              setRefreshing(false);
+            }
+          }}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm font-semibold disabled:opacity-60"
+        >
+          <span className={refreshing ? "animate-spin" : ""}>🔄</span>
+          {refreshing ? "Refreshing..." : "Refresh"}
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-3 mb-8">
@@ -246,7 +430,14 @@ function OrderHistoryPage() {
       <div className="space-y-5">
         {filteredOrders.map((order) => {
           const effectiveStatus = getEffectiveOrderStatus(order);
-          const comboOnlyReturn = isComboOrder(order);
+          const comboOnlyReturn = true;
+          const vnpayPaid = isVnpayPaidOrder(order);
+          const refundStatus = normalizeToken(order.refundStatus);
+          const refundPending = refundStatus === "PENDING";
+          const waitingRefundChoice = refundStatus === "WAITING_REFUND";
+          const canCancel = canCancelOrder(effectiveStatus);
+          const isCancelled =
+            String(effectiveStatus || "").toUpperCase() === "CANCELLED";
 
           return (
             <div
@@ -265,7 +456,9 @@ function OrderHistoryPage() {
                 </div>
 
                 <div
-                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${badgeByStatus(effectiveStatus)}`}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${badgeByStatus(
+                    effectiveStatus,
+                  )}`}
                 >
                   {iconByStatus(effectiveStatus)}
                   {effectiveStatus}
@@ -291,6 +484,20 @@ function OrderHistoryPage() {
                     {order.paymentMethod || "N/A"} /{" "}
                     {order.paymentStatus || "UNPAID"}
                   </div>
+                  {String(order.refundStatus || "").toUpperCase() &&
+                    String(order.refundStatus || "").toUpperCase() !==
+                      "NONE" && (
+                      <div
+                        className={`inline-flex mt-2 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
+                          String(order.refundStatus || "").toUpperCase() ===
+                          "REFUNDED"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            : "bg-blue-50 text-blue-700 border-blue-200"
+                        }`}
+                      >
+                        Refund: {String(order.refundStatus || "").toUpperCase()}
+                      </div>
+                    )}
                   {order.depositType === "PARTIAL" && (
                     <div
                       className={`inline-flex mt-2 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
@@ -352,7 +559,9 @@ function OrderHistoryPage() {
                             <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span
-                                  className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${returnStatusBadge(latestRequest.status)}`}
+                                  className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${returnStatusBadge(
+                                    latestRequest.status,
+                                  )}`}
                                 >
                                   {latestRequest.status}
                                 </span>
@@ -391,16 +600,8 @@ function OrderHistoryPage() {
 
                           {effectiveStatus === "COMPLETED" &&
                             item.orderItemId &&
-                            !comboOnlyReturn &&
-                            !latestRequest && (
-                              <Link
-                                to={`/return-request?orderItemId=${item.orderItemId}&orderId=${order.orderId}`}
-                                className="inline-flex items-center gap-2 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
-                              >
-                                <FiRotateCcw size={14} />
-                                Request Return/Exchange
-                              </Link>
-                            )}
+                            !latestRequest &&
+                            null}
                         </div>
                       </div>
                     );
@@ -412,8 +613,7 @@ function OrderHistoryPage() {
                 comboOnlyReturn &&
                 !getOrderHasAnyReturnRequest(order) && (
                   <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                    This order contains a frame + lens combo. Return/exchange is
-                    allowed for the whole combo only.
+                    Return/exchange is allowed for the whole order only.
                   </div>
                 )}
 
@@ -437,16 +637,169 @@ function OrderHistoryPage() {
                     </Link>
                   )}
 
-                {effectiveStatus === "PENDING" && (
+                {canCancel && (
                   <button
-                    onClick={() => handleCancel(order.orderId)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                    onClick={() => handleCancel(order)}
+                    disabled={refundPending}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold ${
+                      refundPending
+                        ? "border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed"
+                        : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                    }`}
                   >
                     <FiXCircle size={16} />
-                    Cancel Order
+                    {vnpayPaid
+                      ? isCancelled && waitingRefundChoice
+                        ? "Request Refund"
+                        : "Cancel & Refund"
+                      : "Cancel Order"}
                   </button>
                 )}
               </div>
+
+              {refundFormOrderId === order.orderId &&
+                vnpayPaid &&
+                !refundPending && (
+                  <div className="mt-4 rounded-2xl border bg-gray-50 p-4">
+                    <div className="text-sm font-bold text-gray-900">
+                      Refund information
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      {refundMode === "AUTO_VNPAY"
+                        ? "Refund will be returned to your original VNPay payment method."
+                        : "Enter bank details for manual refund processing."}
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRefundMode("AUTO_VNPAY")}
+                          className={`rounded-xl border py-2 text-sm font-semibold ${
+                            refundMode === "AUTO_VNPAY"
+                              ? "bg-black text-white border-black"
+                              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                          }`}
+                        >
+                          Refund via VNPay
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRefundMode("MANUAL")}
+                          className={`rounded-xl border py-2 text-sm font-semibold ${
+                            refundMode === "MANUAL"
+                              ? "bg-black text-white border-black"
+                              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                          }`}
+                        >
+                          Manual refund
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">
+                          Cancel reason (optional)
+                        </label>
+                        <textarea
+                          value={refundForm.cancelReason}
+                          onChange={(e) =>
+                            setRefundForm((prev) => ({
+                              ...prev,
+                              cancelReason: e.target.value,
+                            }))
+                          }
+                          rows={2}
+                          className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                          placeholder="Reason for cancellation"
+                        />
+                      </div>
+
+                      {refundMode === "MANUAL" && (
+                        <>
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            Bạn phải nhập đúng STK của mình. Nếu có sự nhầm lẫn
+                            gì thì bên hệ thống không chịu trách nhiệm.
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                Bank account number
+                              </label>
+                              <input
+                                value={refundForm.bankAccountNumber}
+                                onChange={(e) =>
+                                  setRefundForm((prev) => ({
+                                    ...prev,
+                                    bankAccountNumber: e.target.value.replace(
+                                      /\D/g,
+                                      "",
+                                    ),
+                                  }))
+                                }
+                                className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                                placeholder="e.g. 0123456789"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                Bank name
+                              </label>
+                              <input
+                                value={refundForm.bankName}
+                                onChange={(e) =>
+                                  setRefundForm((prev) => ({
+                                    ...prev,
+                                    bankName: e.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                                placeholder="e.g. Vietcombank"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                Account holder
+                              </label>
+                              <input
+                                value={refundForm.bankAccountHolder}
+                                onChange={(e) =>
+                                  setRefundForm((prev) => ({
+                                    ...prev,
+                                    bankAccountHolder: e.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-xl border px-3 py-2 text-sm bg-white"
+                                placeholder="e.g. Nguyen Van A"
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => submitCancelAndRefund(order)}
+                          disabled={
+                            submittingRefund ||
+                            (refundMode === "MANUAL" && !isManualValid)
+                          }
+                          className="inline-flex items-center justify-center rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900 disabled:opacity-60"
+                        >
+                          {submittingRefund ? "Submitting..." : "Submit"}
+                        </button>
+                        <button
+                          onClick={() => setRefundFormOrderId(null)}
+                          disabled={submittingRefund}
+                          className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
             </div>
           );
         })}

@@ -1,10 +1,21 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
-import { FiShoppingBag, FiClipboard, FiBell } from "react-icons/fi";
+import {
+  FiShoppingBag,
+  FiClipboard,
+  FiBell,
+  FiMoon,
+  FiSun,
+} from "react-icons/fi";
 import notificationService from "../services/notificationService";
+import { useToast } from "../../context/ToastContext";
+import ConfirmDialog from "../../shared/common/ConfirmDialog";
+import { useTheme } from "../../context/ThemeContext";
 
 function Header() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
 
   const MENU_ITEMS = [
     { label: "Store", path: "/shop" },
@@ -29,6 +40,7 @@ function Header() {
   });
 
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   const userRef = useRef(null);
@@ -111,8 +123,9 @@ function Header() {
     setCurrentUser(null);
     setCart([]);
     setShowUserMenu(false);
-
-    navigate("/");
+    setShowLogoutConfirm(false);
+    showToast("Logout successful!");
+    navigate("/login");
   };
 
   return (
@@ -172,6 +185,26 @@ function Header() {
 
             {/* RIGHT ACTIONS */}
             <div className="flex items-center gap-5 ml-2 border-l border-stone-200 pl-6">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex items-center gap-1.5 text-stone-500 hover:text-blue-600 transition-colors group"
+                title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {isDark ? (
+                  <FiSun
+                    size={18}
+                    className="group-hover:-translate-y-0.5 transition-transform"
+                  />
+                ) : (
+                  <FiMoon
+                    size={18}
+                    className="group-hover:-translate-y-0.5 transition-transform"
+                  />
+                )}
+                <span className="mt-0.5">{isDark ? "Light" : "Dark"}</span>
+              </button>
+
               {/* ORDER HISTORY */}
               <Link
                 to="/my-orders"
@@ -393,7 +426,7 @@ function Header() {
                     </Link>
 
                     <button
-                      onClick={handleLogout}
+                      onClick={() => setShowLogoutConfirm(true)}
                       className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors font-medium"
                     >
                       Logout
@@ -413,6 +446,15 @@ function Header() {
 
           {/* MOBILE */}
           <div className="md:hidden flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="text-stone-600 hover:text-blue-600 p-2"
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {isDark ? <FiSun size={20} /> : <FiMoon size={20} />}
+            </button>
+
             <Link
               to="/my-orders"
               className="text-stone-600 hover:text-blue-600 p-2"
@@ -434,6 +476,17 @@ function Header() {
           </div>
         </div>
       </header>
+
+      <ConfirmDialog
+        open={showLogoutConfirm}
+        title="Confirm logout"
+        message="You are about to sign out of your account. Continue?"
+        confirmText="Logout"
+        cancelText="Stay logged in"
+        danger
+        onConfirm={handleLogout}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </>
   );
 }

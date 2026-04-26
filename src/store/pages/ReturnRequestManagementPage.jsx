@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   getAllReturnRequestsApi,
@@ -11,7 +11,7 @@ import {
   adminConfirmRefundFinalApi,
   completeExchangeRequestApi,
 } from "../api/returnRequestApi";
-import { updateOrderStatusApi } from "../api/orderApi";
+import { getOrderByIdApi, updateOrderStatusApi } from "../api/orderApi";
 
 const CUSTOMER_REFUND_CONFIRMED_STATUSES = [
   "REFUND_RECEIVED_CONFIRMED",
@@ -20,38 +20,124 @@ const CUSTOMER_REFUND_CONFIRMED_STATUSES = [
   "WAITING_ADMIN_REFUND_CONFIRM",
 ];
 
+const getOrderCode = (item) => {
+  const code =
+    item?.orderCode ||
+    item?.order_code ||
+    item?.order?.orderCode ||
+    item?.order?.code;
+  return String(code || "").trim();
+};
+
+const getOrderId = (item) => {
+  const id = item?.orderId || item?.order_id || item?.order?.orderId;
+  const trimmed = String(id ?? "").trim();
+  return trimmed;
+};
+
+const getOrderIdentifier = (item) => {
+  return getOrderCode(item) || getOrderId(item) || "";
+};
+
+const getOrderIdentifierDisplay = (item) => {
+  const code = getOrderCode(item);
+  if (code) return code;
+
+  const id = getOrderId(item);
+  if (id) return `ID-${id}`;
+  return "-";
+};
+
 const getOrderBasedTransactionReference = (item) => {
-  const orderCode =
-    item?.orderCode || item?.order_code || item?.order?.orderCode || "";
-  const orderId = item?.orderId || item?.order_id || item?.order?.orderId || "";
-
-  if (orderCode) return `${orderCode}-RF-${item.requestId}`;
-  if (orderId) return `ORD-${orderId}-RF-${item.requestId}`;
-
+  const refBase = getOrderIdentifier(item);
+  if (refBase) return `${refBase}-RF-${item.requestId}`;
   return `AUTO-TXN-${item.requestId}-${Date.now()}`;
 };
 
+const extractOrderCodeFromOrder = (order) => {
+  const code =
+    order?.orderCode ||
+    order?.order_code ||
+    order?.code ||
+    order?.order?.orderCode ||
+    order?.order?.code;
+  const trimmed = String(code || "").trim();
+  return trimmed || null;
+};
+
+const hydrateMissingOrderCodes = async (items, cache) => {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return list;
+
+  const idsNeedingLookup = Array.from(
+    new Set(
+      list
+        .filter((item) => !getOrderCode(item) && !!getOrderId(item))
+        .map((item) => getOrderId(item)),
+    ),
+  ).filter(Boolean);
+
+  const idsToFetch = idsNeedingLookup.filter((id) => !cache.has(id));
+  if (!idsToFetch.length) {
+    return list.map((item) => {
+      if (getOrderCode(item)) return item;
+      const oid = getOrderId(item);
+      const cachedCode = oid ? cache.get(oid) : null;
+      return cachedCode ? { ...item, orderCode: cachedCode } : item;
+    });
+  }
+
+  await Promise.all(
+    idsToFetch.map(async (orderId) => {
+      try {
+        const res = await getOrderByIdApi(orderId);
+        const order = res?.data?.data;
+        const code = extractOrderCodeFromOrder(order);
+        cache.set(orderId, code);
+      } catch {
+        cache.set(orderId, null);
+      }
+    }),
+  );
+
+  return list.map((item) => {
+    if (getOrderCode(item)) return item;
+    const oid = getOrderId(item);
+    const code = oid ? cache.get(oid) : null;
+    return code ? { ...item, orderCode: code } : item;
+  });
+};
+
 function ReturnRequestManagementPage() {
+  const PAGE_SIZE = 10;
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const [orderCodeCache] = useState(() => new Map());
 
   const navigate = useNavigate();
   const role = getCurrentRoleFromToken();
 
-  useEffect(() => {
-    fetchReturnRequests();
-  }, []);
-
-  const fetchReturnRequests = async () => {
+  const fetchReturnRequests = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
       const res = await getAllReturnRequestsApi();
-      setRequests(res?.data?.data || []);
+      const raw = res?.data?.data || [];
+      const hydrated = await hydrateMissingOrderCodes(raw, orderCodeCache);
+      const sorted = [...hydrated].sort(
+        (a, b) =>
+          new Date(
+            b.requestedAt || b.createdAt || b.updatedAt || 0,
+          ).getTime() -
+          new Date(a.requestedAt || a.createdAt || a.updatedAt || 0).getTime(),
+      );
+      setRequests(sorted);
     } catch (err) {
       const status = err?.response?.status;
       const backendMessage = err?.response?.data?.message;
@@ -69,7 +155,11 @@ function ReturnRequestManagementPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [orderCodeCache]);
+
+  useEffect(() => {
+    fetchReturnRequests();
+  }, [fetchReturnRequests]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((item) => {
@@ -77,10 +167,17 @@ function ReturnRequestManagementPage() {
         statusFilter === "ALL" ? true : item.status === statusFilter;
 
       const q = keyword.trim().toLowerCase();
+      const orderIdentifier = getOrderIdentifierDisplay(item);
       const matchKeyword =
         !q ||
         String(item.requestId || "").includes(q) ||
+        String(item.orderCode || "").includes(q) ||
+        String(item.order_code || "").includes(q) ||
         String(item.orderId || "").includes(q) ||
+        String(item.order_id || "").includes(q) ||
+        String(orderIdentifier || "")
+          .toLowerCase()
+          .includes(q) ||
         String(item.orderItemId || "").includes(q) ||
         (item.productName || "").toLowerCase().includes(q) ||
         (item.reason || "").toLowerCase().includes(q) ||
@@ -91,6 +188,27 @@ function ReturnRequestManagementPage() {
       return matchStatus && matchKeyword;
     });
   }, [requests, keyword, statusFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [keyword, statusFilter, requests.length]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredRequests.length / PAGE_SIZE),
+  );
+
+  const paginatedRequests = useMemo(() => {
+    const safePage = Math.min(currentPage, totalPages);
+    const startIndex = (safePage - 1) * PAGE_SIZE;
+    return filteredRequests.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [currentPage, filteredRequests, totalPages]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const updateLocalItem = (updated) => {
     setRequests((prev) =>
@@ -169,9 +287,10 @@ function ReturnRequestManagementPage() {
       }
 
       if (action === "REFUNDED" || action === "FINAL_REFUND_CONFIRM") {
-        const orderId = updated?.orderId || item?.orderId;
-        if (orderId) {
-          await updateOrderStatusApi(orderId, "REFUND");
+        const primaryKey = getOrderId(updated) || getOrderId(item);
+
+        if (primaryKey) {
+          await updateOrderStatusApi(primaryKey, "REFUND");
         }
       }
     } catch (err) {
@@ -399,7 +518,7 @@ function ReturnRequestManagementPage() {
         {error && <div className="px-6 pt-4 text-red-600">{error}</div>}
 
         <div className="p-6 overflow-x-auto">
-          <table className="w-full min-w-[1200px] border-separate border-spacing-y-3">
+          <table className="w-full min-w-300 border-separate border-spacing-y-3">
             <thead>
               <tr className="text-left text-sm text-stone-500">
                 <th className="px-4">Product</th>
@@ -424,7 +543,7 @@ function ReturnRequestManagementPage() {
                   </td>
                 </tr>
               ) : (
-                filteredRequests.map((item) => (
+                paginatedRequests.map((item) => (
                   <tr key={item.requestId} className="bg-stone-50">
                     <td className="px-4 py-4 min-w-[320px]">
                       <div className="flex gap-3">
@@ -448,6 +567,9 @@ function ReturnRequestManagementPage() {
                           <div className="text-sm text-stone-500">
                             Bought: {item.purchasedQuantity ?? "-"} | Return
                             qty: {item.returnQuantity ?? "-"}
+                          </div>
+                          <div className="text-sm font-semibold text-blue-600 mt-1">
+                            Order Code: {getOrderIdentifierDisplay(item)}
                           </div>
                         </div>
                       </div>
@@ -488,6 +610,50 @@ function ReturnRequestManagementPage() {
             </tbody>
           </table>
         </div>
+
+        {filteredRequests.length > 0 && (
+          <div className="flex items-center justify-between gap-3 px-6 pb-6">
+            <div className="text-sm text-stone-500">
+              Showing{" "}
+              <span className="font-semibold text-stone-700">
+                {(currentPage - 1) * PAGE_SIZE + 1}
+              </span>{" "}
+              -{" "}
+              <span className="font-semibold text-stone-700">
+                {Math.min(currentPage * PAGE_SIZE, filteredRequests.length)}
+              </span>{" "}
+              of{" "}
+              <span className="font-semibold text-stone-700">
+                {filteredRequests.length}
+              </span>{" "}
+              requests
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-semibold text-stone-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="px-3 py-2 text-sm font-semibold text-stone-700">
+                Page {currentPage}/{totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+                disabled={currentPage === totalPages}
+                className="px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-semibold text-stone-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

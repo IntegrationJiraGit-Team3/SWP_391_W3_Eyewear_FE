@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiEye, FiFilter, FiSearch, FiShoppingBag } from "react-icons/fi";
+import {
+  FiEye,
+  FiFilter,
+  FiRefreshCw,
+  FiSearch,
+  FiShoppingBag,
+} from "react-icons/fi";
 import ViewOrderDetailsModal from "../modal/ViewOrderDetailModel";
 import {
   getAllOrders,
@@ -48,10 +54,13 @@ const statusColor = (status) => {
 };
 
 function AdminOrders() {
+  const PAGE_SIZE = 10;
   const [orders, setOrders] = useState([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -73,12 +82,18 @@ function AdminOrders() {
           .filter(Boolean),
       );
 
-      const enriched = (data || []).map((order) => {
-        if (refundOrderIds.has(String(order.id))) {
-          return { ...order, status: "refund" };
-        }
-        return order;
-      });
+      const enriched = (data || [])
+        .map((order) => {
+          if (refundOrderIds.has(String(order.id))) {
+            return { ...order, status: "refund" };
+          }
+          return order;
+        })
+        .sort(
+          (a, b) =>
+            new Date(b.rawDate || b.createdAt || 0).getTime() -
+            new Date(a.rawDate || a.createdAt || 0).getTime(),
+        );
 
       setOrders(enriched);
     } catch (err) {
@@ -88,12 +103,19 @@ function AdminOrders() {
 
   useEffect(() => {
     const initialTimer = setTimeout(fetchOrders, 0);
-    const interval = setInterval(fetchOrders, 10000);
     return () => {
       clearTimeout(initialTimer);
-      clearInterval(interval);
     };
   }, [fetchOrders]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchOrders();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const filteredOrders = useMemo(() => {
     return (orders || []).filter((order) => {
@@ -109,11 +131,36 @@ function AdminOrders() {
           .includes(search.toLowerCase());
 
       const rawStatus = String(order.status || "").toLowerCase();
-      const matchesStatus = status === "all" || rawStatus === status;
+      const refundStatus = String(order.refundStatus || "").toUpperCase();
+      const matchesStatus =
+        status === "all" ||
+        rawStatus === status ||
+        (status === "refund_pending" && refundStatus === "PENDING");
 
       return matchesSearch && matchesStatus;
     });
   }, [orders, search, status]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, status, orders.length]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredOrders.length / PAGE_SIZE),
+  );
+
+  const paginatedOrders = useMemo(() => {
+    const safePage = Math.min(currentPage, totalPages);
+    const startIndex = (safePage - 1) * PAGE_SIZE;
+    return filteredOrders.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [currentPage, filteredOrders, totalPages]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleView = async (order) => {
     try {
@@ -195,9 +242,24 @@ function AdminOrders() {
               <option value="delivered">Delivered</option>
               <option value="completed">Completed</option>
               <option value="refund">Refund</option>
+              <option value="refund_pending">Refund pending</option>
               <option value="canceled">Canceled</option>
               <option value="cancelled">Cancelled</option>
             </select>
+
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 rounded-xl bg-gray-50 text-gray-700 px-4 py-3 text-sm font-semibold border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Refresh"
+            >
+              <FiRefreshCw
+                size={16}
+                className={refreshing ? "animate-spin" : ""}
+              />
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
           </div>
         </div>
 
@@ -216,7 +278,7 @@ function AdminOrders() {
               </tr>
             </thead>
             <tbody>
-              {filteredOrders.map((order) => (
+              {paginatedOrders.map((order) => (
                 <tr
                   key={order.id}
                   className="border-b last:border-0 hover:bg-gray-50/60"
@@ -278,11 +340,28 @@ function AdminOrders() {
                     )}
                   </td>
                   <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex px-3 py-1 rounded-full border text-xs font-semibold ${statusColor(order.status)}`}
-                    >
-                      {order.status}
-                    </span>
+                    <div className="inline-flex flex-col items-start">
+                      <span
+                        className={`inline-flex px-3 py-1 rounded-full border text-xs font-semibold ${statusColor(order.status)}`}
+                      >
+                        {order.status}
+                      </span>
+                      {String(order.refundStatus || "").toUpperCase() &&
+                        String(order.refundStatus || "").toUpperCase() !==
+                          "NONE" && (
+                          <span
+                            className={`mt-1 inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
+                              String(order.refundStatus || "").toUpperCase() ===
+                              "REFUNDED"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : "bg-blue-50 text-blue-700 border-blue-200"
+                            }`}
+                          >
+                            Refund:{" "}
+                            {String(order.refundStatus || "").toUpperCase()}
+                          </span>
+                        )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-gray-500">{order.createdAt}</td>
                   <td className="px-6 py-4 text-right">
@@ -310,12 +389,59 @@ function AdminOrders() {
             </tbody>
           </table>
         </div>
+
+        {filteredOrders.length > 0 && (
+          <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/70">
+            <div className="text-sm text-gray-500">
+              Showing{" "}
+              <span className="font-semibold text-gray-700">
+                {(currentPage - 1) * PAGE_SIZE + 1}
+              </span>{" "}
+              -{" "}
+              <span className="font-semibold text-gray-700">
+                {Math.min(currentPage * PAGE_SIZE, filteredOrders.length)}
+              </span>{" "}
+              of{" "}
+              <span className="font-semibold text-gray-700">
+                {filteredOrders.length}
+              </span>{" "}
+              orders
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="px-3 py-2 text-sm font-semibold text-gray-700">
+                Page {currentPage}/{totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+                disabled={currentPage === totalPages}
+                className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {selectedOrder && (
         <ViewOrderDetailsModal
           order={selectedOrder}
-          onClose={() => setSelectedOrder(null)}
+          onClose={() => {
+            setSelectedOrder(null);
+            fetchOrders();
+          }}
           onUpdateStatus={handleUpdateStatus}
           onPrescriptionAction={handlePrescriptionAction}
         />

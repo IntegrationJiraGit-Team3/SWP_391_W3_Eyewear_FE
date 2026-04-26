@@ -1,5 +1,223 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: light;
+  --app-bg: #f5f7fb;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f8fafc;
+  --app-border: #e2e8f0;
+  --app-text: #0f172a;
+  --app-text-muted: #64748b;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: var(--app-bg);
+  color: var(--app-text);
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease,
+    border-color 0.25s ease;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #0b1220;
+  --app-surface: #111827;
+  --app-surface-muted: #172033;
+  --app-border: #243041;
+  --app-text: #e5eefb;
+  --app-text-muted: #9fb0c8;
+}
+
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at top, rgba(37, 99, 235, 0.12), transparent 30%),
+    linear-gradient(180deg, #09111f 0%, #0b1220 100%);
+  color: var(--app-text);
+}
+
+html[data-theme="dark"] .bg-white,
+html[data-theme="dark"] .bg-white\/80,
+html[data-theme="dark"] .bg-white\/90,
+html[data-theme="dark"] .bg-stone-50,
+html[data-theme="dark"] .bg-gray-50,
+html[data-theme="dark"] .bg-slate-50,
+html[data-theme="dark"] .bg-gray-100,
+html[data-theme="dark"] .bg-stone-100,
+html[data-theme="dark"] .bg-slate-100 {
+  background-color: var(--app-surface) !important;
+}
+
+html[data-theme="dark"] .bg-gray-50\/70,
+html[data-theme="dark"] .bg-gray-50\/80,
+html[data-theme="dark"] .bg-gray-50\/60,
+html[data-theme="dark"] .bg-slate-50\/50 {
+  background-color: rgba(23, 32, 51, 0.92) !important;
+}
+
+html[data-theme="dark"] .border,
+html[data-theme="dark"] .border-gray-100,
+html[data-theme="dark"] .border-gray-200,
+html[data-theme="dark"] .border-stone-100,
+html[data-theme="dark"] .border-stone-200,
+html[data-theme="dark"] .border-slate-100,
+html[data-theme="dark"] .border-slate-200,
+html[data-theme="dark"] .border-amber-200,
+html[data-theme="dark"] .border-blue-200,
+html[data-theme="dark"] .border-emerald-200,
+html[data-theme="dark"] .border-red-200 {
+  border-color: var(--app-border) !important;
+}
+
+html[data-theme="dark"] .text-black,
+html[data-theme="dark"] .text-gray-900,
+html[data-theme="dark"] .text-gray-800,
+html[data-theme="dark"] .text-stone-900,
+html[data-theme="dark"] .text-stone-800,
+html[data-theme="dark"] .text-slate-900,
+html[data-theme="dark"] .text-slate-800 {
+  color: var(--app-text) !important;
+}
+
+html[data-theme="dark"] .text-gray-700,
+html[data-theme="dark"] .text-gray-600,
+html[data-theme="dark"] .text-gray-500,
+html[data-theme="dark"] .text-gray-400,
+html[data-theme="dark"] .text-stone-700,
+html[data-theme="dark"] .text-stone-600,
+html[data-theme="dark"] .text-stone-500,
+html[data-theme="dark"] .text-stone-400,
+html[data-theme="dark"] .text-slate-700,
+html[data-theme="dark"] .text-slate-600,
+html[data-theme="dark"] .text-slate-500,
+html[data-theme="dark"] .text-slate-400 {
+  color: var(--app-text-muted) !important;
+}
+
+html[data-theme="dark"] .shadow-sm,
+html[data-theme="dark"] .shadow-md,
+html[data-theme="dark"] .shadow-lg,
+html[data-theme="dark"] .shadow-xl,
+html[data-theme="dark"] .shadow-2xl {
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.28),
+    0 2px 10px rgba(0, 0, 0, 0.18) !important;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background-color: var(--app-surface-muted) !important;
+  color: var(--app-text) !important;
+  border-color: var(--app-border) !important;
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: var(--app-text-muted) !important;
+}
+
+html[data-theme="dark"] table thead,
+html[data-theme="dark"] table tbody tr {
+  background-color: transparent;
+}
+
+html[data-theme="dark"] .hover\:bg-gray-50:hover,
+html[data-theme="dark"] .hover\:bg-gray-100:hover,
+html[data-theme="dark"] .hover\:bg-stone-100:hover,
+html[data-theme="dark"] .hover\:bg-slate-50:hover,
+html[data-theme="dark"] .hover\:bg-slate-100:hover,
+html[data-theme="dark"] .hover\:bg-blue-100:hover {
+  background-color: rgba(30, 41, 59, 0.9) !important;
+}
+
+html[data-theme="dark"] .bg-blue-50,
+html[data-theme="dark"] .bg-blue-100,
+html[data-theme="dark"] .bg-emerald-50,
+html[data-theme="dark"] .bg-emerald-100,
+html[data-theme="dark"] .bg-red-50,
+html[data-theme="dark"] .bg-red-100,
+html[data-theme="dark"] .bg-yellow-50,
+html[data-theme="dark"] .bg-yellow-100,
+html[data-theme="dark"] .bg-orange-50,
+html[data-theme="dark"] .bg-orange-100,
+html[data-theme="dark"] .bg-fuchsia-50,
+html[data-theme="dark"] .bg-amber-50,
+html[data-theme="dark"] .bg-amber-100,
+html[data-theme="dark"] .bg-cyan-50,
+html[data-theme="dark"] .bg-indigo-50,
+html[data-theme="dark"] .bg-violet-50,
+html[data-theme="dark"] .bg-violet-100,
+html[data-theme="dark"] .bg-sky-50,
+html[data-theme="dark"] .bg-sky-100 {
+  background-color: rgba(30, 41, 59, 0.88) !important;
+}
+
+html[data-theme="dark"] .text-white {
+  color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .text-blue-700,
+html[data-theme="dark"] .text-blue-600,
+html[data-theme="dark"] .text-emerald-700,
+html[data-theme="dark"] .text-emerald-600,
+html[data-theme="dark"] .text-red-700,
+html[data-theme="dark"] .text-red-600,
+html[data-theme="dark"] .text-amber-700,
+html[data-theme="dark"] .text-amber-600,
+html[data-theme="dark"] .text-violet-700,
+html[data-theme="dark"] .text-violet-600,
+html[data-theme="dark"] .text-sky-700,
+html[data-theme="dark"] .text-sky-600 {
+  filter: saturate(1.1) brightness(1.15);
+}
+
+html[data-theme="dark"] .border-blue-300,
+html[data-theme="dark"] .border-emerald-300,
+html[data-theme="dark"] .border-red-300,
+html[data-theme="dark"] .border-amber-300,
+html[data-theme="dark"] .border-violet-300,
+html[data-theme="dark"] .border-sky-300 {
+  border-color: var(--app-border) !important;
+}
+
+html[data-theme="dark"] .admin,
+html[data-theme="dark"] .min-h-screen,
+html[data-theme="dark"] .min-h-full {
+  background-color: transparent !important;
+}
+
+html[data-theme="dark"] .apexcharts-canvas text,
+html[data-theme="dark"] .apexcharts-legend-text,
+html[data-theme="dark"] .apexcharts-xaxis text,
+html[data-theme="dark"] .apexcharts-yaxis text,
+html[data-theme="dark"] .apexcharts-datalabel,
+html[data-theme="dark"] .apexcharts-title-text,
+html[data-theme="dark"] .apexcharts-subtitle-text {
+  fill: var(--app-text-muted) !important;
+  color: var(--app-text-muted) !important;
+}
+
+html[data-theme="dark"] .apexcharts-datalabel-value,
+html[data-theme="dark"] .apexcharts-data-labels text,
+html[data-theme="dark"] .apexcharts-pie-label,
+html[data-theme="dark"] .apexcharts-donut-label {
+  fill: #f8fafc !important;
+  color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .apexcharts-gridline,
+html[data-theme="dark"] .apexcharts-xcrosshairs,
+html[data-theme="dark"] .apexcharts-ycrosshairs {
+  stroke: rgba(148, 163, 184, 0.24) !important;
+}
+
 @keyframes fadeUp {
   from {
     opacity: 0;

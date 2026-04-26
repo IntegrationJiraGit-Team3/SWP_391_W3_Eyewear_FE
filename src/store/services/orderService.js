@@ -2,7 +2,9 @@ import {
   historyOrderApi,
   cancelOrderApi,
   cancelPendingPaymentApi,
+  requestRefundApi,
   getOrderByIdApi,
+  processVnpayReturnApi,
   updatePaymentStatusApi,
   updatePaymentMethodApi,
 } from "../api/orderApi";
@@ -12,6 +14,9 @@ const normalizePaymentToken = (value) =>
     .trim()
     .toUpperCase()
     .replace(/[\s-]+/g, "_");
+
+const normalizePaymentMethod = (value) =>
+  normalizePaymentToken(value).replace(/_/g, "");
 
 const isFullyPaid = (value) => {
   const token = normalizePaymentToken(value);
@@ -25,12 +30,39 @@ const isFullyPaid = (value) => {
   ].includes(token);
 };
 
+// Display rule: VNPay orders should start at PENDING until payment is confirmed.
+// Some backends may return PROCESSING immediately; we normalize display status
+// so users still see the expected initial PENDING state.
+const resolveDisplayStatus = (order) => {
+  const backendStatus = normalizePaymentToken(order?.status);
+  const paymentMethod = normalizePaymentMethod(order?.paymentMethod);
+
+  if (paymentMethod === "VNPAY" && !isFullyPaid(order?.paymentStatus)) {
+    if (["PROCESSING", "PENDING", ""].includes(backendStatus)) {
+      return "PENDING";
+    }
+  }
+
+  return backendStatus || "PENDING";
+};
+
 const resolveRemainingPaymentStatus = (order) => {
   const backendRemaining = normalizePaymentToken(
     order?.remainingPaymentStatus ?? order?.finalPaymentStatus,
   );
   if (backendRemaining === "PAID") return "PAID";
   if (backendRemaining === "UNPAID") return "UNPAID";
+
+  const isPartial =
+    String(order?.depositType || "").trim().toUpperCase() === "PARTIAL";
+  const paymentStatus = normalizePaymentToken(order?.paymentStatus);
+
+  // Với đơn trả cọc 50%:
+  // PAID = mới trả cọc
+  // PAID_FULL = đã trả toàn bộ
+  if (isPartial) {
+    return paymentStatus === "PAID_FULL" ? "PAID" : "UNPAID";
+  }
 
   if (isFullyPaid(order?.paymentStatus)) {
     return "PAID";
@@ -96,6 +128,11 @@ const mapStatusLabel = (status) => {
   }
 };
 
+const normalizeRefundStatus = (value) => {
+  const token = normalizePaymentToken(value);
+  return token ? token : "NONE";
+};
+
 export const getMyOrders = async () => {
   const res = await historyOrderApi();
   const rawOrders = res.data.data;
@@ -103,11 +140,16 @@ export const getMyOrders = async () => {
   return rawOrders.map((order) => ({
     id: order.orderCode,
     orderId: order.orderId,
+    orderDate: order.orderDate,
+    orderDateMs: order.orderDate ? new Date(order.orderDate).getTime() : 0,
     date: new Date(order.orderDate).toLocaleDateString("en-US"),
-    status: mapStatus(order.status),
+    status: mapStatus(resolveDisplayStatus(order)),
     total: Number(order.finalPrice || 0),
     paymentStatus: order.paymentStatus,
     paymentMethod: order.paymentMethod,
+    refundStatus: normalizeRefundStatus(order.refundStatus),
+    refundRequestedAt: order.refundRequestedAt,
+    refundProcessedAt: order.refundProcessedAt,
     depositAmount: order.depositAmount,
     depositType: order.depositType,
     depositPaymentMethod: order.depositPaymentMethod,
@@ -145,12 +187,17 @@ export const cancelPendingPayment = async (orderId) => {
   return res.data;
 };
 
+export const requestRefund = async (orderId, payload) => {
+  const res = await requestRefundApi(orderId, payload);
+  return res.data;
+};
+
 export const getOrderDetails = async (id) => {
   const res = await getOrderByIdApi(id);
   const order = res.data.data;
 
   let statusCode = 0;
-  const status = order.status?.toUpperCase();
+  const status = resolveDisplayStatus(order);
 
   if (status === "PENDING" || status === "PREORDER") statusCode = 0;
   else if (status === "PROCESSING") statusCode = 1;
@@ -160,12 +207,21 @@ export const getOrderDetails = async (id) => {
   return {
     ...order,
     depositPaymentMethod: order.depositPaymentMethod,
+    orderDate: order.orderDate,
+    orderDateMs: order.orderDate ? new Date(order.orderDate).getTime() : 0,
+    refundStatus: normalizeRefundStatus(order.refundStatus),
+    refundRequestedAt: order.refundRequestedAt,
+    refundProcessedAt: order.refundProcessedAt,
+    refundBankName: order.refundBankName,
+    refundBankAccountNumber: order.refundBankAccountNumber,
+    refundBankAccountHolder: order.refundBankAccountHolder,
+    refundNote: order.refundNote,
     remainingPaymentStatus: resolveRemainingPaymentStatus(order),
     id: order.orderCode,
     orderId: order.orderId,
     date: new Date(order.orderDate).toLocaleDateString("en-US"),
     status: statusCode,
-    rawStatus: mapStatusLabel(order.status),
+    rawStatus: mapStatusLabel(status),
     items: (order.orderItems || []).map((item) => ({
       ...item,
       name: item.productName,
@@ -186,5 +242,10 @@ export const updatePaymentStatus = async (orderId, status) => {
 
 export const updatePaymentMethod = async (orderId, method) => {
   const res = await updatePaymentMethodApi(orderId, method);
+  return res.data;
+};
+
+export const processVnpayReturn = async (params) => {
+  const res = await processVnpayReturnApi(params);
   return res.data;
 };

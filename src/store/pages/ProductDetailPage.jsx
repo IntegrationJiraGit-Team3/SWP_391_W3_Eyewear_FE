@@ -1,15 +1,12 @@
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FiShoppingBag,
   FiHeart,
   FiArrowLeft,
-  FiCheck,
   FiChevronLeft,
   FiChevronRight,
-  FiChevronDown,
   FiStar,
-  FiEye,
   FiCalendar,
   FiMapPin,
 } from "react-icons/fi";
@@ -19,6 +16,7 @@ import { addToCartService } from "../services/cartService";
 import { getReviewsByProduct, createReview } from "../api/reviewApi";
 import { historyOrderApi } from "../api/orderApi";
 import { useToast } from "../../context/ToastContext";
+import { useTheme } from "../../context/ThemeContext";
 
 /* ─── Star Rating Display ─── */
 function StarRow({ rating, size = 14 }) {
@@ -41,6 +39,7 @@ function ProductDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isDark } = useTheme();
 
   const [activeImg, setActiveImg] = useState(0);
   const [activeColor, setActiveColor] = useState(0);
@@ -48,14 +47,6 @@ function ProductDetailPage() {
   const [wished, setWished] = useState(false);
   const { showToast } = useToast();
   const [token] = useState(localStorage.getItem("token"));
-  const [lensOption, setLensOption] = useState(null);
-  const [prescription, setPrescription] = useState({
-    eyes: {
-      right: { sphere: "", cylinder: "", axis: "", add: "" },
-      left: { sphere: "", cylinder: "", axis: "", add: "" },
-    },
-    pd: "",
-  });
 
   const [newRating, setNewRating] = useState(5);
   const [newComment, setNewComment] = useState("");
@@ -63,6 +54,7 @@ function ProductDetailPage() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [checkingEligibility, setCheckingEligibility] = useState(true);
 
+  const [selectedSize, setSelectedSize] = useState("");
   const [productData, setProductData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState([]);
@@ -79,6 +71,7 @@ function ProductDetailPage() {
         setLoading(false);
       }
     };
+
     if (id) fetchInitialData();
   }, [id]);
 
@@ -88,6 +81,7 @@ function ProductDetailPage() {
       setCheckingEligibility(false);
       return;
     }
+
     try {
       const res = await historyOrderApi();
       const orders = res?.data?.data || res?.data || [];
@@ -97,13 +91,14 @@ function ProductDetailPage() {
             o?.status?.toUpperCase() === "COMPLETED") &&
           (o?.orderItems || o?.items)?.some(
             (item) =>
-              (item.productId || item.product?.productId) === parseInt(id),
+              (item.productId || item.product?.productId) === parseInt(id, 10),
           ),
       );
       if (match) setEligibleOrderId(match.orderId || match.id);
     } catch (err) {
-      if (err.response?.status !== 403)
+      if (err.response?.status !== 403) {
         console.error("Eligibility check error:", err);
+      }
     } finally {
       setCheckingEligibility(false);
     }
@@ -125,11 +120,12 @@ function ProductDetailPage() {
       showToast("Please enter a comment");
       return;
     }
+
     setSubmittingReview(true);
     try {
       await createReview({
         orderId: eligibleOrderId,
-        productId: parseInt(id),
+        productId: parseInt(id, 10),
         rating: newRating,
         comment: newComment,
       });
@@ -145,7 +141,211 @@ function ProductDetailPage() {
     }
   };
 
-  const showToastWrapper = (msg, type) => showToast(msg, type);
+  const availableSizes = useMemo(() => {
+    return [
+      ...new Set(
+        (productData?.variants || [])
+          .map((v) => (v.frameSize || "").trim())
+          .filter(Boolean),
+      ),
+    ];
+  }, [productData]);
+
+  useEffect(() => {
+    if (!selectedSize && availableSizes.length > 0) {
+      setSelectedSize(availableSizes[0]);
+    }
+  }, [selectedSize, availableSizes]);
+
+  const product = useMemo(() => {
+    if (!productData) return null;
+
+    return {
+      id: productData.id || productData.productId,
+      name: productData.name || "No name",
+      price: formatPrice(
+        productData.price || productData.variants?.[0]?.price || 0,
+      ),
+      priceNum: productData.price || productData.variants?.[0]?.price || 0,
+      category: (
+        productData.category ||
+        productData.productType ||
+        ""
+      ).toLowerCase(),
+      description: productData.description,
+      images: productData.variants?.map((v) => v.imageUrl) || [
+        "https://via.placeholder.com/500",
+      ],
+      colors: productData.variants?.map((v) => v.color) || [],
+      specs: [
+        { label: "Brand", value: productData.brand },
+        {
+          label: "Category",
+          value: productData.category || productData.productType,
+        },
+        {
+          label: "Stock",
+          value: productData.variants?.reduce(
+            (sum, v) => sum + (v.stockQuantity || 0),
+            0,
+          ),
+        },
+        {
+          label: "Prescription Support",
+          value: productData.isPrescriptionSupported ? "Yes" : "No",
+        },
+      ],
+    };
+  }, [productData]);
+
+  const selectedColor = productData?.variants?.[activeColor]?.color;
+
+  const selectedVariantUI = useMemo(() => {
+    if (!productData?.variants?.length) return null;
+
+    return (
+      productData.variants.find(
+        (v) =>
+          v.color === selectedColor &&
+          (v.frameSize || "").trim().toLowerCase() ===
+            (selectedSize || "").trim().toLowerCase(),
+      ) || productData.variants[activeColor]
+    );
+  }, [productData, activeColor, selectedColor, selectedSize]);
+
+  let stockText = "";
+  let stockColor = "";
+  let isOutOfStock = false;
+
+  if (!selectedVariantUI || selectedVariantUI.stockQuantity === 0) {
+    stockText = "Out of stock · Pre-order available";
+    stockColor = "text-red-500";
+    isOutOfStock = true;
+  } else if (selectedVariantUI.stockQuantity <= 20) {
+    stockText = `Only ${selectedVariantUI.stockQuantity} items left`;
+    stockColor = "text-blue-500";
+  } else {
+    stockText = `${selectedVariantUI.stockQuantity} items in stock`;
+    stockColor = "text-emerald-600";
+  }
+
+  const maxStock = selectedVariantUI?.stockQuantity || 0;
+
+  const handleAddToCart = async () => {
+    const currentUser =
+      localStorage.getItem("currentUser") || localStorage.getItem("token");
+
+    if (!currentUser) {
+      showToast("Please login to add item to cart.");
+      const from = `${location.pathname}${location.search}${location.hash}`;
+      navigate("/login", { state: { from } });
+      return;
+    }
+
+    const productCat = (
+      productData.category ||
+      productData.productType ||
+      ""
+    ).toLowerCase();
+
+    const selectedVariant = selectedVariantUI;
+
+    if (!selectedVariant) {
+      showToast("Please select a variant");
+      return;
+    }
+
+    if (productCat === "frame") {
+      navigate(
+        `/prescription/${product.id}?variantId=${selectedVariant.variantId}&quantity=${quantity}`,
+      );
+      return;
+    }
+
+    let cart;
+    try {
+      cart = JSON.parse(localStorage.getItem("cart")) || [];
+    } catch {
+      cart = [];
+    }
+
+    const finalPrice = selectedVariant.price || productData.price || 0;
+
+    const cartItem = {
+      productId: productData.id || productData.productId,
+      variantId: selectedVariant.variantId,
+      name: productData.name,
+      productName: productData.name,
+      brand: productData.brand,
+      price: finalPrice,
+      unitPrice: finalPrice,
+      imageUrl:
+        selectedVariant.imageUrl ||
+        productData.imageUrl ||
+        productData.img ||
+        "",
+      quantity,
+      variant: selectedVariant,
+      variantColor: selectedVariant.color,
+      variantSize: selectedVariant.frameSize,
+      isPreorder: isOutOfStock,
+      isLens: productCat === "lens",
+    };
+
+    const idx = cart.findIndex(
+      (item) => item.variant?.variantId === selectedVariant.variantId,
+    );
+
+    if (idx !== -1) {
+      cart[idx].quantity += quantity;
+    } else {
+      cart.push(cartItem);
+    }
+
+    localStorage.setItem("cart", JSON.stringify(cart));
+    window.dispatchEvent(new Event("storage"));
+
+    try {
+      const apiRes = await addToCartService({
+        productId: productData.id || productData.productId,
+        variantId: selectedVariant.variantId,
+        quantity,
+        isLens: productCat === "lens",
+        isPreorder: isOutOfStock,
+      });
+
+      if (apiRes) {
+        if (isOutOfStock) {
+          try {
+            const preorders =
+              JSON.parse(localStorage.getItem("frontend_preorders")) || {};
+            preorders[selectedVariant.variantId] = true;
+            localStorage.setItem(
+              "frontend_preorders",
+              JSON.stringify(preorders),
+            );
+          } catch {
+            // ignore
+          }
+        }
+        showToast(`Added ${quantity} items to cart!`);
+      } else {
+        showToast("Error adding to cart");
+      }
+    } catch {
+      showToast(`Added ${quantity} items to cart!`);
+    }
+  };
+
+  const prevImg = () =>
+    setActiveImg((p) => (p === 0 ? product.images.length - 1 : p - 1));
+
+  const nextImg = () =>
+    setActiveImg((p) => (p === product.images.length - 1 ? 0 : p + 1));
+
+  const avgRating = reviews.length
+    ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
+    : null;
 
   if (loading) {
     return (
@@ -158,7 +358,7 @@ function ProductDetailPage() {
     );
   }
 
-  if (!productData) {
+  if (!productData || !product) {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 text-center">
         <div className="w-20 h-20 rounded-2xl bg-stone-50 flex items-center justify-center mb-6 border border-stone-100">
@@ -180,199 +380,6 @@ function ProductDetailPage() {
     );
   }
 
-  // FIX LỖI: Lấy giá trị category đúng chuẩn, chống lỗi undefined
-  const product = {
-    id: productData.id || productData.productId,
-    name: productData.name || "No name",
-    price: formatPrice(
-      productData.price || productData.variants?.[0]?.price || 0,
-    ),
-    priceNum: productData.price || productData.variants?.[0]?.price || 0,
-    category: (
-      productData.category ||
-      productData.productType ||
-      ""
-    ).toLowerCase(),
-    description: productData.description,
-    images: productData.variants?.map((v) => v.imageUrl) || [
-      "https://via.placeholder.com/500",
-    ],
-    colors: productData.variants?.map((v) => v.color) || [],
-    specs: [
-      { label: "Brand", value: productData.brand },
-      {
-        label: "Category",
-        value: productData.category || productData.productType,
-      },
-      {
-        label: "Stock",
-        value: productData.variants?.reduce(
-          (sum, v) => sum + v.stockQuantity,
-          0,
-        ),
-      },
-      {
-        label: "Prescription Support",
-        value: productData.isPrescriptionSupported ? "Yes" : "No",
-      },
-    ],
-  };
-
-  const selectedVariantUI = productData.variants?.[activeColor];
-  let stockText = "",
-    stockColor = "",
-    isOutOfStock = false;
-
-  if (!selectedVariantUI || selectedVariantUI.stockQuantity === 0) {
-    stockText = "Out of stock · Pre-order available";
-    stockColor = "text-red-500";
-    isOutOfStock = true;
-  } else if (selectedVariantUI.stockQuantity <= 20) {
-    stockText = `Only ${selectedVariantUI.stockQuantity} items left`;
-    stockColor = "text-blue-500";
-  } else {
-    stockText = `${selectedVariantUI.stockQuantity} items in stock`;
-    stockColor = "text-emerald-600";
-  }
-
-  const maxStock = selectedVariantUI?.stockQuantity || 0;
-
-  const handleAddToCart = async () => {
-    const currentUser =
-      localStorage.getItem("currentUser") || localStorage.getItem("token");
-    if (!currentUser) {
-      showToast("Please login to add item to cart.");
-      const from = `${location.pathname}${location.search}${location.hash}`;
-      navigate("/login", { state: { from } });
-      return;
-    }
-
-    const productCat = (
-      productData.category ||
-      productData.productType ||
-      ""
-    ).toLowerCase();
-    const selectedVariant = productData.variants[activeColor];
-    if (productCat === "frame") {
-      // Go directly to prescription page
-      navigate(
-        `/prescription/${product.id}?variantId=${selectedVariant.variantId}&quantity=${quantity}`,
-      );
-      return;
-    }
-
-    // FIX LỖI: Bắt buộc chọn tuỳ chọn nếu mua tròng kính
-    if (productCat === "lens" && !lensOption) {
-      showToast("Please select a prescription entry method!");
-      return;
-    }
-
-    let cart;
-    try {
-      cart = JSON.parse(localStorage.getItem("cart")) || [];
-    } catch {
-      cart = [];
-    }
-
-    if (!selectedVariant) {
-      showToast("Please select a color");
-      return;
-    }
-
-    // FIX LỖI: Cập nhật lấy giá đúng theo Variant, chống lỗi undefined / price = 0
-    const finalPrice = selectedVariant.price || productData.price || 0;
-
-    const cartItem = {
-      productId: productData.id || productData.productId,
-      variantId: selectedVariant.variantId,
-      name: productData.name,
-      productName: productData.name,
-      brand: productData.brand,
-      price: finalPrice,
-      unitPrice: finalPrice,
-      imageUrl:
-        selectedVariant.imageUrl ||
-        productData.imageUrl ||
-        productData.img ||
-        "",
-      quantity,
-      variant: selectedVariant,
-      variantColor: selectedVariant.color,
-      variantSize: selectedVariant.frameSize,
-      isPreorder: isOutOfStock,
-    };
-
-    const idx = cart.findIndex(
-      (item) => item.variant?.variantId === selectedVariant.variantId,
-    );
-
-    if (idx !== -1) cart[idx].quantity += quantity;
-    else cart.push(cartItem);
-
-    localStorage.setItem("cart", JSON.stringify(cart));
-    window.dispatchEvent(new Event("storage"));
-
-    try {
-      // Prepare prescription payload if manual entry is selected
-      const isLens = lensOption === "manual";
-
-      const apiRes = await addToCartService({
-        productId: productData.id || productData.productId,
-        variantId: selectedVariant.variantId,
-        quantity,
-        isLens,
-        sphLeft: isLens ? parseFloat(prescription.eyes.left.sphere) || 0 : null,
-        sphRight: isLens
-          ? parseFloat(prescription.eyes.right.sphere) || 0
-          : null,
-        cylLeft: isLens
-          ? parseFloat(prescription.eyes.left.cylinder) || 0
-          : null,
-        cylRight: isLens
-          ? parseFloat(prescription.eyes.right.cylinder) || 0
-          : null,
-        axisLeft: isLens ? parseInt(prescription.eyes.left.axis) || 0 : null,
-        axisRight: isLens ? parseInt(prescription.eyes.right.axis) || 0 : null,
-        addLeft: isLens ? parseFloat(prescription.eyes.left.add) || 0 : null,
-        addRight: isLens ? parseFloat(prescription.eyes.right.add) || 0 : null,
-        pd: isLens ? parseFloat(prescription.pd) || 0 : null,
-      });
-
-      if (apiRes) {
-        // Save preorder state locally to bypass backend strict API validation rejection (500)
-        if (isOutOfStock) {
-          try {
-            const preorders =
-              JSON.parse(localStorage.getItem("frontend_preorders")) || {};
-            preorders[selectedVariant.variantId] = true;
-            localStorage.setItem(
-              "frontend_preorders",
-              JSON.stringify(preorders),
-            );
-          } catch {
-            // ignore
-          }
-        }
-        showToast(`Added ${quantity} items to cart!`);
-      } else {
-        showToast("Error adding to cart");
-      }
-    } catch {
-      // Keep local cart fallback for transient API errors of logged-in users.
-      showToast(`Added ${quantity} items to cart!`);
-    }
-  };
-
-  const prevImg = () =>
-    setActiveImg((p) => (p === 0 ? product.images.length - 1 : p - 1));
-  const nextImg = () =>
-    setActiveImg((p) => (p === product.images.length - 1 ? 0 : p + 1));
-
-  /* average rating */
-  const avgRating = reviews.length
-    ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
-    : null;
-
   return (
     <>
       <style>{`
@@ -380,7 +387,7 @@ function ProductDetailPage() {
         @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
         @keyframes imgIn   { from{opacity:0;transform:scale(1.03)} to{opacity:1;transform:scale(1)} }
         .thumb-ring { box-shadow: 0 0 0 2px #1c1917; }
-        .color-pill-active {  background: #1c1917; color: #fff; border-color: #1c1917; box-shadow: 0 0 0 2px rgba(28,25,23,0.2); transform: scale(1.05); }
+        .color-pill-active { background: #1c1917; color: #fff; border-color: #1c1917; box-shadow: 0 0 0 2px rgba(28,25,23,0.2); transform: scale(1.05); }
         .color-pill { border: 1.5px solid #e7e5e4; padding: 6px 16px; border-radius: 99px; font-size:13px; font-weight:500; transition: all .15s; cursor:pointer; background: white; color: #44403c; }
         .color-pill:hover { border-color: #a8a29e; }
         input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
@@ -419,22 +426,23 @@ function ProductDetailPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-20">
             {/* ── LEFT: Images ── */}
             <div className="space-y-3" style={{ animation: "fadeIn .5s ease" }}>
-              {/* Main image */}
               <div className="relative aspect-square overflow-hidden rounded-3xl bg-white group border border-stone-100 p-4 shadow-sm">
                 <img
                   key={activeImg}
                   src={product.images[activeImg] || "https://placehold.co/500"}
                   alt={product.name}
-                  className="w-full h-full object-contain mix-blend-multiply"
+                  className={`w-full h-full object-contain ${
+                    isDark ? "mix-blend-normal" : "mix-blend-multiply"
+                  }`}
                   style={{ animation: "imgIn .35s ease" }}
                 />
-                {/* Image counter pill */}
+
                 {product.images.length > 1 && (
                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/40 text-white text-xs px-3 py-1 rounded-full backdrop-blur-sm font-medium tabular-nums">
                     {activeImg + 1} / {product.images.length}
                   </div>
                 )}
-                {/* Nav arrows */}
+
                 {product.images.length > 1 && (
                   <>
                     <button
@@ -453,7 +461,6 @@ function ProductDetailPage() {
                 )}
               </div>
 
-              {/* Thumbnails */}
               {product.images.length > 1 && (
                 <div className="flex gap-2.5 overflow-x-auto pb-1">
                   {product.images.map((img, i) => (
@@ -469,14 +476,15 @@ function ProductDetailPage() {
                       <img
                         src={img}
                         alt=""
-                        className="w-full h-full object-contain mix-blend-multiply"
+                        className={`w-full h-full object-contain ${
+                          isDark ? "mix-blend-normal" : "mix-blend-multiply"
+                        }`}
                       />
                     </button>
                   ))}
                 </div>
               )}
 
-              {/* Rating summary — only if there are reviews */}
               {reviews.length > 0 && (
                 <div className="flex items-center gap-3 px-4 py-3 bg-stone-50 rounded-2xl border border-stone-100">
                   <span className="text-2xl font-semibold text-stone-900 tabular-nums">
@@ -500,7 +508,6 @@ function ProductDetailPage() {
               className="flex flex-col gap-6"
               style={{ animation: "slideUp .5s ease" }}
             >
-              {/* Category + name + price */}
               <div className="space-y-2">
                 <p className="text-[10px] text-stone-400 tracking-[0.25em] uppercase font-semibold">
                   {product.category}
@@ -517,7 +524,6 @@ function ProductDetailPage() {
 
               <div className="h-px bg-stone-100" />
 
-              {/* Description */}
               <p className="text-stone-500 text-sm leading-relaxed">
                 {product.description}
               </p>
@@ -535,23 +541,70 @@ function ProductDetailPage() {
                     <button
                       key={v.variantId}
                       onClick={() => setActiveColor(i)}
-                      className={`color-pill ${i === activeColor ? "color-pill-active" : ""}`}
+                      className={`color-pill ${
+                        i === activeColor ? "color-pill-active" : ""
+                      }`}
                     >
                       {v.color}
                     </button>
                   ))}
                 </div>
+
                 {selectedVariantUI && (
                   <p
                     className={`mt-2.5 text-xs font-medium flex items-center gap-1.5 ${stockColor}`}
                   >
                     <span
-                      className={`w-1.5 h-1.5 rounded-full inline-block ${isOutOfStock ? "bg-red-400" : selectedVariantUI.stockQuantity <= 20 ? "bg-blue-400" : "bg-emerald-500"}`}
+                      className={`w-1.5 h-1.5 rounded-full inline-block ${
+                        isOutOfStock
+                          ? "bg-red-400"
+                          : selectedVariantUI.stockQuantity <= 20
+                            ? "bg-blue-400"
+                            : "bg-emerald-500"
+                      }`}
                     />
                     {stockText}
                   </p>
                 )}
               </div>
+
+              {/* Size selector */}
+              {availableSizes.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-stone-400 tracking-[0.2em] uppercase font-semibold mb-3">
+                    Size ·{" "}
+                    <span className="text-stone-700 normal-case tracking-normal font-medium">
+                      {selectedSize || "N/A"}
+                    </span>
+                  </p>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {availableSizes.map((size) => {
+                      const lower = size.toLowerCase();
+                      const label =
+                        lower === "small"
+                          ? "S"
+                          : lower === "medium"
+                            ? "M"
+                            : lower === "large"
+                              ? "L"
+                              : size;
+
+                      return (
+                        <button
+                          key={size}
+                          onClick={() => setSelectedSize(size)}
+                          className={`color-pill ${
+                            selectedSize === size ? "color-pill-active" : ""
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Quantity */}
               <div>
@@ -570,7 +623,7 @@ function ProductDetailPage() {
                     {quantity}
                   </span>
                   <button
-                    disabled={quantity > maxStock - 1}
+                    disabled={!isOutOfStock && quantity >= maxStock}
                     onClick={() => setQuantity(quantity + 1)}
                     className="w-10 h-10 flex items-center justify-center text-stone-500 hover:text-stone-900 hover:bg-stone-100 transition-colors text-xl font-light select-none disabled:opacity-50"
                   >
@@ -578,18 +631,6 @@ function ProductDetailPage() {
                   </button>
                 </div>
               </div>
-
-              {/* Lens options */}
-              {product.category === "lens" && (
-                <div>
-                  <LensPurchaseOptions
-                    lensOption={lensOption}
-                    setLensOption={setLensOption}
-                    prescription={prescription}
-                    setPrescription={setPrescription}
-                  />
-                </div>
-              )}
 
               {/* CTA */}
               <div className="flex gap-3 pt-1">
@@ -636,7 +677,6 @@ function ProductDetailPage() {
         {/* ── Reviews ── */}
         <div className="border-t border-stone-100 mt-4">
           <div className="max-w-6xl mx-auto px-6 py-14">
-            {/* Header row */}
             <div className="flex flex-col md:flex-row md:items-start justify-between gap-8 mb-10">
               <div>
                 <h2 className="text-xl font-semibold text-stone-900">
@@ -660,7 +700,6 @@ function ProductDetailPage() {
                 )}
               </div>
 
-              {/* Write review / login prompt */}
               {token ? (
                 eligibleOrderId ? (
                   <div className="bg-blue-50 rounded-2xl p-5 border border-blue-100 w-full md:max-w-sm">
@@ -739,7 +778,6 @@ function ProductDetailPage() {
               )}
             </div>
 
-            {/* Review cards */}
             {reviews.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {reviews.map((review) => (
@@ -813,186 +851,6 @@ function ProductDetailPage() {
         </section>
       </div>
     </>
-  );
-}
-
-/* ─── Lens purchase options ─── */
-function LensPurchaseOptions({
-  lensOption,
-  setLensOption,
-  prescription,
-  setPrescription,
-}) {
-  const handleEye = (side, field, value) => {
-    setPrescription((prev) => ({
-      ...prev,
-      eyes: { ...prev.eyes, [side]: { ...prev.eyes[side], [field]: value } },
-    }));
-  };
-
-  return (
-    <div className="space-y-2.5">
-      {/* Option 1 — Manual */}
-      <button
-        onClick={() => setLensOption(lensOption === "manual" ? null : "manual")}
-        className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left ${
-          lensOption === "manual"
-            ? "border-emerald-400 bg-emerald-50"
-            : "border-stone-200 hover:border-emerald-300 bg-white"
-        }`}
-      >
-        <div
-          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
-            lensOption === "manual" ? "bg-emerald-100" : "bg-stone-100"
-          }`}
-        >
-          <FiEye
-            size={17}
-            className={
-              lensOption === "manual" ? "text-emerald-600" : "text-stone-500"
-            }
-          />
-        </div>
-        <div className="flex-1 text-left">
-          <p className="font-semibold text-sm text-stone-900">
-            Manual Prescription Entry
-          </p>
-          <p
-            className={`text-[11px] mt-0.5 ${lensOption === "manual" ? "text-emerald-600" : "text-stone-400"}`}
-          >
-            Enter SPH · CYL · AXIS · ADD
-          </p>
-        </div>
-        <FiChevronDown
-          size={15}
-          className={`text-stone-300 transition-transform duration-200 ${lensOption === "manual" ? "rotate-180 text-emerald-400" : ""}`}
-        />
-      </button>
-
-      {/* Prescription form */}
-      {lensOption === "manual" && (
-        <div
-          className="border-2 border-emerald-200 rounded-2xl overflow-hidden bg-white"
-          style={{ animation: "slideUp .2s ease" }}
-        >
-          {/* Eye grid */}
-          <div className="px-4 pt-4 pb-2">
-            <table
-              className="w-full"
-              style={{
-                tableLayout: "fixed",
-                borderCollapse: "separate",
-                borderSpacing: "0 6px",
-              }}
-            >
-              <thead>
-                <tr>
-                  <th className="text-left text-[10px] font-semibold text-stone-400 uppercase tracking-wider pb-1 w-[16%]">
-                    Eye
-                  </th>
-                  {["SPH", "CYL", "AXIS", "ADD"].map((h) => (
-                    <th
-                      key={h}
-                      className="text-[10px] font-semibold text-stone-400 uppercase tracking-wider pb-1 text-center"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { side: "right", label: "Eye R" },
-                  { side: "left", label: "Eye L" },
-                ].map(({ side, label }) => (
-                  <tr key={side}>
-                    <td>
-                      <span className="inline-block text-[11px] font-bold text-stone-500 uppercase bg-stone-100 px-2 py-1 rounded-md">
-                        {label}
-                      </span>
-                    </td>
-                    {["sphere", "cylinder", "axis", "add"].map((field) => (
-                      <td key={field} className="px-1">
-                        <input
-                          type="number"
-                          step={field === "axis" ? "1" : "0.25"}
-                          value={prescription.eyes[side][field]}
-                          onChange={(e) =>
-                            handleEye(side, field, e.target.value)
-                          }
-                          placeholder="—"
-                          className="w-full border border-stone-200 rounded-lg px-1 py-2 text-sm text-center font-mono bg-stone-50 focus:bg-white focus:border-emerald-400 focus:ring-1 focus:ring-emerald-200 focus:outline-none transition-all"
-                        />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Divider */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px bg-stone-100" />
-        <span className="text-[10px] text-stone-300 uppercase tracking-[0.2em] font-medium whitespace-nowrap">
-          or
-        </span>
-        <div className="flex-1 h-px bg-stone-100" />
-      </div>
-
-      {/* Option 2 — No prescription */}
-      <button
-        onClick={() =>
-          setLensOption(
-            lensOption === "no-prescription" ? null : "no-prescription",
-          )
-        }
-        className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left ${
-          lensOption === "no-prescription"
-            ? "border-blue-700 bg-blue-600 text-white"
-            : "border-stone-200 hover:border-blue-400 bg-white"
-        }`}
-      >
-        <div
-          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-            lensOption === "no-prescription" ? "bg-white/10" : "bg-stone-100"
-          }`}
-        >
-          <FiCheck
-            size={17}
-            className={
-              lensOption === "no-prescription" ? "text-white" : "text-blue-500"
-            }
-            strokeWidth={2.5}
-          />
-        </div>
-        <div>
-          <p
-            className={`font-semibold text-sm ${lensOption === "no-prescription" ? "text-white" : "text-stone-900"}`}
-          >
-            No Prescription
-          </p>
-          <p
-            className={`text-[11px] mt-0.5 ${lensOption === "no-prescription" ? "text-stone-400" : "text-stone-400"}`}
-          >
-            Buy non-prescription glasses
-          </p>
-        </div>
-      </button>
-
-      {/* Confirmed label */}
-      {lensOption && (
-        <p className="text-xs text-stone-400 flex items-center gap-1.5 pl-1">
-          <FiCheck size={11} className="text-emerald-500" strokeWidth={3} />
-          Selected:{" "}
-          <span className="font-semibold text-stone-700">
-            {lensOption === "manual" ? "Manual Entry" : "Non-prescription"}
-          </span>
-        </p>
-      )}
-    </div>
   );
 }
 

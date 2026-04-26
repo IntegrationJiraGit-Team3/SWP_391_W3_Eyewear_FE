@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { updatePaymentStatus } from "../services/orderService";
+import { processVnpayReturn } from "../services/orderService";
 
 function PaymentResultPage() {
   const [searchParams] = useSearchParams();
@@ -22,46 +22,61 @@ function PaymentResultPage() {
     };
 
     const run = async () => {
+      const params = Object.fromEntries(searchParams.entries());
+
       try {
         localStorage.setItem("vnpay:lastResult", JSON.stringify(payload));
       } catch (err) {
         console.error("Store VNPay result failed:", err);
       }
 
+      // Backend phải là nguồn sự thật:
+      // - verify chữ ký
+      // - cập nhật payment status đúng theo loại thanh toán
+      // - lưu payment record
+      // - xử lý fail/cancel
+      try {
+        await processVnpayReturn(params);
+      } catch (err) {
+        console.error("Process VNPay return on backend failed:", err);
+      }
+
       try {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(payload, window.location.origin);
           setTimeout(() => window.close(), 1200);
+          return;
         }
       } catch (err) {
         console.error("Post VNPay result failed:", err);
       }
 
-      if (!isSuccess) return;
+      const orderInfo = searchParams.get("vnp_OrderInfo");
 
+      let pendingContext = null;
       try {
         const pendingContextRaw = localStorage.getItem(
           "vnpay:pendingRemainingPayment",
         );
-        if (!pendingContextRaw) return;
+        pendingContext = pendingContextRaw
+          ? JSON.parse(pendingContextRaw)
+          : null;
+      } catch (err) {
+        console.error("Read VNPay context failed:", err);
+      }
 
-        const pendingContext = JSON.parse(pendingContextRaw);
-        const orderId = pendingContext?.orderId;
-        if (!orderId) return;
+      const orderId = pendingContext?.orderId || orderInfo;
 
-        await updatePaymentStatus(orderId, "PAID_FULL");
-
+      if (isSuccess && orderId) {
         redirectTimer = setTimeout(() => {
           navigate(`/shipping-progress/${orderId}`, { replace: true });
         }, 1000);
-      } catch (error) {
-        console.error("Finalize paid order failed:", error);
-      } finally {
-        try {
-          localStorage.removeItem("vnpay:pendingRemainingPayment");
-        } catch (removeErr) {
-          console.error("Clear VNPay context failed:", removeErr);
-        }
+      }
+
+      try {
+        localStorage.removeItem("vnpay:pendingRemainingPayment");
+      } catch (removeErr) {
+        console.error("Clear VNPay context failed:", removeErr);
       }
     };
 
@@ -70,7 +85,7 @@ function PaymentResultPage() {
     return () => {
       if (redirectTimer) clearTimeout(redirectTimer);
     };
-  }, [isSuccess, navigate, vnp_ResponseCode, vnp_TransactionNo]);
+  }, [isSuccess, navigate, searchParams, vnp_ResponseCode, vnp_TransactionNo]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
@@ -120,7 +135,8 @@ function PaymentResultPage() {
               Payment Failed!
             </h2>
             <p className="text-gray-600 mb-6">
-              You cancelled the transaction or an error occurred.
+              The payment was not completed. Your order will stay pending for up
+              to 5 minutes so you can continue the payment.
             </p>
           </>
         )}
