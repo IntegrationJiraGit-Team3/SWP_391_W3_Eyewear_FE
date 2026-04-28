@@ -16,6 +16,7 @@ import { addToCartService } from "../services/cartService";
 import { getReviewsByProduct, createReview } from "../api/reviewApi";
 import { historyOrderApi } from "../api/orderApi";
 import { useToast } from "../../context/ToastContext";
+import { useTheme } from "../../context/ThemeContext";
 
 /* ─── Star Rating Display ─── */
 function StarRow({ rating, size = 14 }) {
@@ -38,6 +39,7 @@ function ProductDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isDark } = useTheme();
 
   const [activeImg, setActiveImg] = useState(0);
   const [activeColor, setActiveColor] = useState(0);
@@ -313,8 +315,19 @@ function ProductDetailPage() {
       });
 
       if (apiRes) {
-        // Save preorder state locally to bypass backend strict API validation rejection (500)
-        // (Removed dangerous frontend_preorders logic. isPreorder is passed explicitly via API now)
+        if (isOutOfStock) {
+          try {
+            const preorders =
+              JSON.parse(localStorage.getItem("frontend_preorders")) || {};
+            preorders[selectedVariant.variantId] = true;
+            localStorage.setItem(
+              "frontend_preorders",
+              JSON.stringify(preorders),
+            );
+          } catch {
+            // ignore
+          }
+        }
         showToast(`Added ${quantity} items to cart!`);
       } else {
         showToast("Error adding to cart");
@@ -418,7 +431,9 @@ function ProductDetailPage() {
                   key={activeImg}
                   src={product.images[activeImg] || "https://placehold.co/500"}
                   alt={product.name}
-                  className="w-full h-full object-contain mix-blend-multiply"
+                  className={`w-full h-full object-contain ${
+                    isDark ? "mix-blend-normal" : "mix-blend-multiply"
+                  }`}
                   style={{ animation: "imgIn .35s ease" }}
                 />
 
@@ -461,7 +476,9 @@ function ProductDetailPage() {
                       <img
                         src={img}
                         alt=""
-                        className="w-full h-full object-contain mix-blend-multiply"
+                        className={`w-full h-full object-contain ${
+                          isDark ? "mix-blend-normal" : "mix-blend-multiply"
+                        }`}
                       />
                     </button>
                   ))}

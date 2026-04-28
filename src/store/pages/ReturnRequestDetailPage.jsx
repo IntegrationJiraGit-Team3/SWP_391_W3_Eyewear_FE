@@ -92,7 +92,7 @@ function ReturnRequestDetailPage() {
   };
 
   const handleAdminFinalRefundConfirm = async () => {
-    if (!window.confirm("Confirm final refund completion for this request?"))
+    if (!window.confirm("Xác nhận hoàn tiền thành công và cập nhật trạng thái đơn hàng sang REFUND?"))
       return;
 
     try {
@@ -108,7 +108,7 @@ function ReturnRequestDetailPage() {
       setRequest(updatedRequest);
       alert("Final refund confirmed successfully");
     } catch (err) {
-      alert(err?.response?.data?.message || "Failed to finalize refund");
+      alert(err?.response?.data?.message || "Khong thể xác nhận hoàn tiền cuối cùng");
     } finally {
       setSubmitting(false);
     }
@@ -122,7 +122,7 @@ function ReturnRequestDetailPage() {
       !bankForm.bankAccountNumber.trim() ||
       !bankForm.bankAccountHolder.trim()
     ) {
-      alert("Please fill in all bank information fields");
+      alert("Vui lòng điền đầy đủ thông tin ngân hàng");
       return;
     }
 
@@ -134,10 +134,10 @@ function ReturnRequestDetailPage() {
         bankAccountHolder: bankForm.bankAccountHolder.trim(),
       });
       setRequest(res?.data?.data || request);
-      alert("Bank information updated successfully");
+      alert("Thông tin ngân hàng được cập nhật thành công");
     } catch (err) {
       alert(
-        err?.response?.data?.message || "Failed to update bank information",
+        err?.response?.data?.message || "Không thể cập nhật thông tin ngân hàng",
       );
     } finally {
       setSubmitting(false);
@@ -154,7 +154,7 @@ function ReturnRequestDetailPage() {
             onClick={() => navigate(backPath)}
             className="mb-4 px-4 py-2 rounded-xl bg-stone-800 text-white hover:bg-stone-700"
           >
-            Back
+            Quay lại
           </button>
 
           <div className="bg-white border border-red-200 text-red-600 rounded-2xl p-6">
@@ -173,11 +173,11 @@ function ReturnRequestDetailPage() {
             onClick={() => navigate(backPath)}
             className="mb-4 px-4 py-2 rounded-xl bg-stone-800 text-white hover:bg-stone-700"
           >
-            Back
+          Quay lại
           </button>
 
           <div className="bg-white border border-stone-200 rounded-2xl p-6">
-            No data found
+            Dư liệu yêu cầu trả hàng không tồn tại
           </div>
         </div>
       </div>
@@ -207,7 +207,7 @@ function ReturnRequestDetailPage() {
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-stone-900">
-              Return Request Detail
+             Chi tiết yêu cầu trả hàng
             </h1>
             <p className="text-stone-500 mt-1">Request #{request.requestId}</p>
           </div>
@@ -216,7 +216,7 @@ function ReturnRequestDetailPage() {
             onClick={() => navigate(backPath)}
             className="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-semibold"
           >
-            Back
+            Quay lại
           </button>
         </div>
 
@@ -257,7 +257,7 @@ function ReturnRequestDetailPage() {
         {request.requestType === "RETURN" && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <HighlightCard
-              title="Refund Amount"
+              title="Khoảng hoàn tiền"
               value={formatCurrency(request.refundAmount)}
             />
             <HighlightCard
@@ -278,7 +278,7 @@ function ReturnRequestDetailPage() {
                 Refund has been transferred
               </h3>
               <p className="text-emerald-700 mt-1">
-                Please confirm after you receive the money in your bank account.
+                Xin hãy xác nhận khi bạn nhận được tiền trong tài khoản ngân hàng của mình.
               </p>
             </div>
 
@@ -287,7 +287,7 @@ function ReturnRequestDetailPage() {
               onClick={handleConfirmReceived}
               className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-50"
             >
-              I have received the refund
+              Tôi đã nhận được tiền hoàn trả
             </button>
           </div>
         )}

@@ -31,6 +31,14 @@ const resolveRemainingPaymentStatus = (order) => {
   if (backendRemaining === "PAID") return "PAID";
   if (backendRemaining === "UNPAID") return "UNPAID";
 
+  const isPartial =
+    String(order?.depositType || "").trim().toUpperCase() === "PARTIAL";
+  const paymentStatus = normalizePaymentToken(order?.paymentStatus);
+
+  if (isPartial) {
+    return paymentStatus === "PAID_FULL" ? "PAID" : "UNPAID";
+  }
+
   if (isFullyPaid(order?.paymentStatus)) {
     return "PAID";
   }
@@ -50,7 +58,15 @@ const resolveRemainingPaymentStage = (order) => {
 
   const isPartial =
     String(order?.depositType || "").toUpperCase() === "PARTIAL";
-  const method = normalizePaymentToken(order?.paymentMethod);
+  const backendStage = normalizePaymentToken(order?.remainingPaymentStage);
+  if (backendStage === "PENDING_CONFIRMATION") {
+    return "PENDING_CONFIRMATION";
+  }
+  if (backendStage === "UNPAID") {
+    return "UNPAID";
+  }
+
+  const method = normalizePaymentToken(order?.remainingPaymentMethod);
 
   if (isPartial && method === "COD") {
     return "PENDING_CONFIRMATION";

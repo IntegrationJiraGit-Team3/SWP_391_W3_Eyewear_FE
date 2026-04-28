@@ -61,6 +61,17 @@ const resolveRemainingPaymentStatus = (order) => {
   if (backendRemaining === "PAID") return "PAID";
   if (backendRemaining === "UNPAID") return "UNPAID";
 
+  const isPartial =
+    String(order?.depositType || "").trim().toUpperCase() === "PARTIAL";
+  const paymentStatus = normalizePaymentToken(order?.paymentStatus);
+
+  // Với đơn trả cọc 50%:
+  // PAID = mới trả cọc
+  // PAID_FULL = đã trả toàn bộ
+  if (isPartial) {
+    return paymentStatus === "PAID_FULL" ? "PAID" : "UNPAID";
+  }
+
   if (isFullyPaid(order?.paymentStatus)) {
     return "PAID";
   }

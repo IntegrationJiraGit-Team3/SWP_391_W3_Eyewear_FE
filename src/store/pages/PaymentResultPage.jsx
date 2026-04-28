@@ -1,9 +1,6 @@
 import { useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import {
-  processVnpayReturn,
-  updatePaymentStatus,
-} from "../services/orderService";
+import { processVnpayReturn } from "../services/orderService";
 
 function PaymentResultPage() {
   const [searchParams] = useSearchParams();
@@ -33,11 +30,11 @@ function PaymentResultPage() {
         console.error("Store VNPay result failed:", err);
       }
 
-      // Always forward return params to backend so it can:
-      // - verify signature
-      // - update order payment status
-      // - persist successful Payment records (transaction reference)
-      // - cancel pending payment orders on failures
+      // Backend phải là nguồn sự thật:
+      // - verify chữ ký
+      // - cập nhật payment status đúng theo loại thanh toán
+      // - lưu payment record
+      // - xử lý fail/cancel
       try {
         await processVnpayReturn(params);
       } catch (err) {
@@ -48,46 +45,39 @@ function PaymentResultPage() {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(payload, window.location.origin);
           setTimeout(() => window.close(), 1200);
+          return;
         }
       } catch (err) {
         console.error("Post VNPay result failed:", err);
       }
 
-      if (!isSuccess) return;
+      const orderInfo = searchParams.get("vnp_OrderInfo");
 
+      let pendingContext = null;
       try {
         const orderInfo = searchParams.get("vnp_OrderInfo");
         const pendingContextRaw = localStorage.getItem(
           "vnpay:pendingRemainingPayment",
         );
-        const pendingContext = pendingContextRaw
+        pendingContext = pendingContextRaw
           ? JSON.parse(pendingContextRaw)
           : null;
+      } catch (err) {
+        console.error("Read VNPay context failed:", err);
+      }
 
-        const orderId = pendingContext?.orderId || orderInfo;
+      const orderId = pendingContext?.orderId || orderInfo;
 
-        // Remaining-payment flow expects PAID_FULL. Backend return handler will
-        // typically move PAID -> PAID_FULL when called the second time.
-        // Keep this as a compatibility fallback in case return handler doesn't
-        // update paymentStatus due to environment/config differences.
-        if (pendingContext?.orderId) {
-          await updatePaymentStatus(pendingContext.orderId, "PAID_FULL");
-        }
+      if (isSuccess && orderId) {
+        redirectTimer = setTimeout(() => {
+          navigate(`/shipping-progress/${orderId}`, { replace: true });
+        }, 1000);
+      }
 
-        const inPopup = !!(window.opener && !window.opener.closed);
-        if (!inPopup && orderId) {
-          redirectTimer = setTimeout(() => {
-            navigate(`/shipping-progress/${orderId}`, { replace: true });
-          }, 1000);
-        }
-      } catch (error) {
-        console.error("Finalize paid order failed:", error);
-      } finally {
-        try {
-          localStorage.removeItem("vnpay:pendingRemainingPayment");
-        } catch (removeErr) {
-          console.error("Clear VNPay context failed:", removeErr);
-        }
+      try {
+        localStorage.removeItem("vnpay:pendingRemainingPayment");
+      } catch (removeErr) {
+        console.error("Clear VNPay context failed:", removeErr);
       }
     };
 
@@ -119,7 +109,7 @@ function PaymentResultPage() {
               </svg>
             </div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
-              VNPay Payment Successful!
+              VNPay Thanh toán thành công!
             </h2>
             <p className="text-gray-600 mb-6">
               Transaction Code: {vnp_TransactionNo}
@@ -143,10 +133,11 @@ function PaymentResultPage() {
               </svg>
             </div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
-              Payment Failed!
+              Thanh toán thất bại!
             </h2>
             <p className="text-gray-600 mb-6">
-              You cancelled the transaction or an error occurred.
+              The payment was not completed. Your order will stay pending for up
+              to 5 minutes so you can continue the payment.
             </p>
           </>
         )}
@@ -162,7 +153,7 @@ function PaymentResultPage() {
             to="/"
             className="w-full rounded-lg border border-gray-200 py-3 font-semibold text-gray-700 hover:bg-gray-50"
           >
-            Back to Home
+            Quay lai trang chủ
           </Link>
         </div>
       </div>

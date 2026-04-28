@@ -109,12 +109,16 @@ const hydrateMissingOrderCodes = async (items, cache) => {
 };
 
 function ReturnRequestManagementPage() {
+  const PAGE_SIZE = 10;
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const [orderCodeCache] = useState(() => new Map());
 
   const [orderCodeCache] = useState(() => new Map());
 
@@ -128,7 +132,14 @@ function ReturnRequestManagementPage() {
       const res = await getAllReturnRequestsApi();
       const raw = res?.data?.data || [];
       const hydrated = await hydrateMissingOrderCodes(raw, orderCodeCache);
-      setRequests(hydrated);
+      const sorted = [...hydrated].sort(
+        (a, b) =>
+          new Date(
+            b.requestedAt || b.createdAt || b.updatedAt || 0,
+          ).getTime() -
+          new Date(a.requestedAt || a.createdAt || a.updatedAt || 0).getTime(),
+      );
+      setRequests(sorted);
     } catch (err) {
       const status = err?.response?.status;
       const backendMessage = err?.response?.data?.message;
@@ -140,8 +151,8 @@ function ReturnRequestManagementPage() {
       setError(
         backendMessage ||
           (status
-            ? `Failed to load return requests (HTTP ${status})`
-            : "Failed to load return requests"),
+            ? `Không thể tải danh sách yêu cầu đổi/trả (HTTP ${status})`
+            : "Không thể tải danh sách yêu cầu đổi/trả"),
       );
     } finally {
       setLoading(false);
@@ -180,6 +191,27 @@ function ReturnRequestManagementPage() {
     });
   }, [requests, keyword, statusFilter]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [keyword, statusFilter, requests.length]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredRequests.length / PAGE_SIZE),
+  );
+
+  const paginatedRequests = useMemo(() => {
+    const safePage = Math.min(currentPage, totalPages);
+    const startIndex = (safePage - 1) * PAGE_SIZE;
+    return filteredRequests.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [currentPage, filteredRequests, totalPages]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const updateLocalItem = (updated) => {
     setRequests((prev) =>
       prev.map((item) =>
@@ -194,10 +226,10 @@ function ReturnRequestManagementPage() {
         return approveReturnRequestApi(item.requestId);
 
       case "REJECT": {
-        const reason = window.prompt("Enter rejection reason:");
+        const reason = window.prompt("Nhập lý do từ chối:");
         if (reason === null) return null;
         if (!reason.trim()) {
-          alert("Please enter rejection reason");
+          alert("Vui lòng nhập lý do từ chối");
           return null;
         }
         return rejectReturnRequestApi(item.requestId, {
@@ -212,10 +244,10 @@ function ReturnRequestManagementPage() {
         return markRefundPendingApi(item.requestId);
 
       case "REFUND_INVALID": {
-        const note = window.prompt("Enter invalid refund info reason:");
+        const note = window.prompt("Nhập lý do thông tin hoàn tiền không hợp lệ:");
         if (note === null) return null;
         if (!note.trim()) {
-          alert("Please enter reason");
+          alert("Vui lòng nhập lý do");
           return null;
         }
         return markRefundInvalidApi(item.requestId, {
@@ -225,7 +257,7 @@ function ReturnRequestManagementPage() {
 
       case "REFUNDED": {
         const transactionReference = getOrderBasedTransactionReference(item);
-        const note = "Confirmed by admin";
+        const note = "Xác nhận bởi quản trị viên";
 
         return markRefundedApi(item.requestId, {
           paymentMethod: "BANK_TRANSFER",
@@ -513,7 +545,7 @@ function ReturnRequestManagementPage() {
                   </td>
                 </tr>
               ) : (
-                filteredRequests.map((item) => (
+                paginatedRequests.map((item) => (
                   <tr key={item.requestId} className="bg-stone-50">
                     <td className="px-4 py-4 min-w-[320px]">
                       <div className="flex gap-3">
@@ -580,6 +612,50 @@ function ReturnRequestManagementPage() {
             </tbody>
           </table>
         </div>
+
+        {filteredRequests.length > 0 && (
+          <div className="flex items-center justify-between gap-3 px-6 pb-6">
+            <div className="text-sm text-stone-500">
+              Showing{" "}
+              <span className="font-semibold text-stone-700">
+                {(currentPage - 1) * PAGE_SIZE + 1}
+              </span>{" "}
+              -{" "}
+              <span className="font-semibold text-stone-700">
+                {Math.min(currentPage * PAGE_SIZE, filteredRequests.length)}
+              </span>{" "}
+              of{" "}
+              <span className="font-semibold text-stone-700">
+                {filteredRequests.length}
+              </span>{" "}
+              requests
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-semibold text-stone-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="px-3 py-2 text-sm font-semibold text-stone-700">
+                Page {currentPage}/{totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+                disabled={currentPage === totalPages}
+                className="px-4 py-2 rounded-xl border border-stone-200 bg-white text-sm font-semibold text-stone-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -18,10 +18,7 @@ import {
 } from "../services/cartService";
 
 import { checkoutOrder, createVNPayPayment } from "../services/checkoutService";
-import {
-  cancelPendingPayment,
-  getOrderDetails,
-} from "../services/orderService";
+import { getOrderDetails } from "../services/orderService";
 import { useToast } from "../../context/ToastContext";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -265,13 +262,18 @@ function CheckoutPage() {
   const [paymentNeedsRetry, setPaymentNeedsRetry] = useState(false);
   const paymentHandledRef = useRef(false);
 
-  const clearPaymentState = useCallback(() => {
+  const clearPaymentState = useCallback((options = {}) => {
+    const { preservePendingPayment = false } = options;
     setWaitingPayment(false);
     setPlacing(false);
     setPendingOrderId(null);
     setPendingPaymentAmount(null);
     setPaymentNeedsRetry(false);
     setPaymentWindow(null);
+    if (!preservePendingPayment) {
+      setPendingOrderId(null);
+      setPendingPaymentContext(null);
+    }
   }, []);
 
   const enterRetryPaymentState = useCallback(
@@ -528,6 +530,43 @@ function CheckoutPage() {
     setPlacing(true);
 
     try {
+      if (paymentMethod === "VNPAY" && pendingPaymentContext?.orderId) {
+        const pendingSince = Number(pendingPaymentContext.pendingSince || 0);
+        if (pendingSince && Date.now() - pendingSince > 300000) {
+          setPendingPaymentContext(null);
+          setPendingOrderId(null);
+          setPlacing(false);
+          showToast("The previous VNPay session expired. Please place the order again.");
+          return;
+        }
+
+        try {
+          const latestOrder = await getOrderDetails(pendingPaymentContext.orderId);
+          const paymentStatus = String(latestOrder?.paymentStatus || "").toUpperCase();
+          const orderStatus = String(
+            latestOrder?.rawStatus || latestOrder?.status || "",
+          ).toUpperCase();
+
+          if (["PAID", "PAID_FULL"].includes(paymentStatus)) {
+            finalizeVnPaySuccess();
+            return;
+          }
+
+          if (["CANCELLED", "CANCELED", "REFUND", "REFUNDED"].includes(orderStatus)) {
+            setPendingPaymentContext(null);
+            setPendingOrderId(null);
+            setPlacing(false);
+            showToast("This pending order is no longer payable. Please place a new order.");
+            return;
+          }
+        } catch (existingOrderError) {
+          console.error("Load pending order failed:", existingOrderError);
+        }
+
+        await openVnpayWindow(pendingPaymentContext);
+        return;
+      }
+
       const order = await checkoutOrder(
         formData,
         shippingFee,

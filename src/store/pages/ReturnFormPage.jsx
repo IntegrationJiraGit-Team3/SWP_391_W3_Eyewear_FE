@@ -71,14 +71,14 @@ function ReturnFormPage() {
   const reasons = [
     {
       value: "Defective/Scratched product",
-      label: "Defective / Scratched product",
+      label: "Sản phẩm bị lỗi/trầy xước",
     },
-    { value: "Wrong product delivered", label: "Wrong product delivered" },
+    { value: "Wrong product delivered", label: "Giao sai sản phẩm" },
     {
       value: "Does not fit / Not suitable",
-      label: "Does not fit / Not suitable",
+      label: "Không vừa / Không phù hợp",
     },
-    { value: "Other reason", label: "Other reason" },
+    { value: "Other reason", label: "Lý do khác" },
   ];
 
   const isReturn = formData.requestType === "RETURN";
@@ -115,36 +115,36 @@ function ReturnFormPage() {
 
   const validateForm = () => {
     if (!orderItemId && !orderId) {
-      setSubmitError("Missing order reference.");
+      setSubmitError("Thiếu thông tin đơn hàng.");
       return false;
     }
 
     if (!formData.reason.trim()) {
-      setSubmitError("Please select a reason.");
+      setSubmitError("Vui lòng chọn lý do.");
       return false;
     }
 
     if (!formData.details.trim()) {
-      setSubmitError("Please enter more details.");
+      setSubmitError("Vui lòng nhập chi tiết lý do.");
       return false;
     }
 
     if (isReturn) {
       if (!formData.bankAccountNumber.trim()) {
-        setSubmitError("Bank account number is required for return refund.");
+        setSubmitError("Vui lòng nhập số tài khoản ngân hàng để hoàn tiền.");
         return false;
       }
       if (!formData.bankName.trim()) {
-        setSubmitError("Bank name is required for return refund.");
+        setSubmitError("Vui lòng nhập tên ngân hàng để hoàn tiền.");
         return false;
       }
       if (!formData.bankAccountHolder.trim()) {
-        setSubmitError("Account holder is required for return refund.");
+        setSubmitError("Vui lòng nhập tên chủ tài khoản để hoàn tiền.");
         return false;
       }
       if (!bankInfoConfirmed) {
         setSubmitError(
-          "Please confirm the bank account information is correct.",
+          "Vui lòng xác nhận thông tin tài khoản ngân hàng chính xác.",
         );
         return false;
       }
