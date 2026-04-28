@@ -37,7 +37,15 @@ const resolveDisplayStatus = (order) => {
   const backendStatus = normalizePaymentToken(order?.status);
   const paymentMethod = normalizePaymentMethod(order?.paymentMethod);
 
-  if (paymentMethod === "VNPAY" && !isFullyPaid(order?.paymentStatus)) {
+  const paymentStatus = normalizePaymentToken(order?.paymentStatus);
+
+  // Only force VNPay orders to show PENDING while payment is not yet confirmed.
+  // For partial orders, PAID_DEPOSIT means payment *is* confirmed, so we should
+  // show the actual order status (PROCESSING/DELIVERING/...).
+  if (
+    paymentMethod === "VNPAY" &&
+    ["", "UNPAID", "PENDING"].includes(paymentStatus)
+  ) {
     if (["PROCESSING", "PENDING", ""].includes(backendStatus)) {
       return "PENDING";
     }
@@ -59,7 +67,7 @@ const resolveRemainingPaymentStatus = (order) => {
 
   const remainingAmount = Number(
     order?.remainingAmount ??
-    (Number(order?.finalPrice || 0) - Number(order?.depositAmount || 0)),
+      Number(order?.finalPrice || 0) - Number(order?.depositAmount || 0),
   );
 
   return remainingAmount <= 0 ? "PAID" : "UNPAID";
@@ -190,8 +198,19 @@ export const getOrderDetails = async (id) => {
 
   if (status === "PENDING" || status === "PREORDER") statusCode = 0;
   else if (status === "PROCESSING") statusCode = 1;
-  else if (status === "SHIPPING" || status === "DELIVERING" || status === "SHIPPED") statusCode = 2;
-  else if (status === "DELIVERED" || status === "COMPLETED" || status === "REFUND" || status === "REFUNDED") statusCode = 3;
+  else if (
+    status === "SHIPPING" ||
+    status === "DELIVERING" ||
+    status === "SHIPPED"
+  )
+    statusCode = 2;
+  else if (
+    status === "DELIVERED" ||
+    status === "COMPLETED" ||
+    status === "REFUND" ||
+    status === "REFUNDED"
+  )
+    statusCode = 3;
 
   return {
     ...order,

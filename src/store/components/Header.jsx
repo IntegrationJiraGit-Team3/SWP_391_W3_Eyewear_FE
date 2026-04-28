@@ -51,7 +51,13 @@ function Header() {
       const data = await notificationService.getNotifications(
         currentUser.userId,
       );
-      setNotifications(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      list.sort((a, b) => {
+        const at = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bt = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bt - at;
+      });
+      setNotifications(list);
     }
   };
 

@@ -197,10 +197,10 @@ function CheckoutPage() {
       [name]: newValue,
     }));
   };
-  const showToast = (msg) => {
+  const showToast = useCallback((msg) => {
     setToast({ visible: true, message: msg });
     setTimeout(() => setToast({ visible: false, message: "" }), 3000);
-  };
+  }, []);
 
   const _updateQty = async (productId, variantId, delta, cartItemId) => {
     const item = cartItems.find(
@@ -261,14 +261,31 @@ function CheckoutPage() {
   const [paymentWindow, setPaymentWindow] = useState(null);
   const [waitingPayment, setWaitingPayment] = useState(false);
   const [pendingOrderId, setPendingOrderId] = useState(null);
+  const [pendingPaymentAmount, setPendingPaymentAmount] = useState(null);
+  const [paymentNeedsRetry, setPaymentNeedsRetry] = useState(false);
   const paymentHandledRef = useRef(false);
 
   const clearPaymentState = useCallback(() => {
     setWaitingPayment(false);
     setPlacing(false);
     setPendingOrderId(null);
+    setPendingPaymentAmount(null);
+    setPaymentNeedsRetry(false);
     setPaymentWindow(null);
   }, []);
+
+  const enterRetryPaymentState = useCallback(
+    (message) => {
+      // Keep order pending/UNPAID and stay on Checkout so customer can retry.
+      paymentHandledRef.current = true;
+      setPlacing(false);
+      setPaymentWindow(null);
+      setWaitingPayment(true);
+      setPaymentNeedsRetry(true);
+      if (message) showToast(message);
+    },
+    [showToast],
+  );
 
   const cancelPendingOrderAndExit = useCallback(
     async (orderId, message) => {
@@ -289,7 +306,7 @@ function CheckoutPage() {
         if (message) showToast(message);
       }
     },
-    [clearPaymentState],
+    [clearPaymentState, showToast],
   );
 
   const finalizeVnPaySuccess = useCallback(() => {
@@ -312,6 +329,123 @@ function CheckoutPage() {
     })();
   }, [clearPaymentState, navigate]);
 
+  const beginVnpayPaymentFlow = useCallback(
+    async (orderId, amountToPay) => {
+      if (!orderId || !amountToPay) {
+        showToast("Missing payment context. Please try again.");
+        return;
+      }
+
+      paymentHandledRef.current = false;
+      setPendingOrderId(orderId);
+      setPendingPaymentAmount(amountToPay);
+      setPaymentNeedsRetry(false);
+
+      let paymentUrl;
+      try {
+        paymentUrl = await createVNPayPayment(amountToPay, orderId);
+      } catch (err) {
+        console.error("Create VNPay payment failed:", err);
+        // If we cannot even create a payment URL, keep order pending.
+        enterRetryPaymentState(
+          "Unable to start VNPay. Your order is still pending — please try again.",
+        );
+        return;
+      }
+
+      const width = 600,
+        height = 700;
+      const left = window.innerWidth / 2 - width / 2;
+      const top = window.innerHeight / 2 - height / 2;
+      const popup = window.open(
+        paymentUrl,
+        "VNPay_Payment",
+        `width=${width},height=${height},left=${left},top=${top}`,
+      );
+
+      if (!popup) {
+        await cancelPendingOrderAndExit(
+          orderId,
+          "Unable to open VNPay window. Please allow popups and try again.",
+        );
+        return;
+      }
+
+      setPaymentWindow(popup);
+      setWaitingPayment(true);
+
+      let popupCloseHandled = false;
+      const pollInterval = setInterval(async () => {
+        if (paymentHandledRef.current) {
+          clearInterval(pollInterval);
+          return;
+        }
+
+        if (popup.closed && !popupCloseHandled) {
+          popupCloseHandled = true;
+          clearInterval(pollInterval);
+
+          (async () => {
+            try {
+              const latestOrder = await getOrderDetails(orderId);
+              const isPaid =
+                latestOrder.paymentStatus === "PAID" ||
+                latestOrder.paymentStatus === "PAID_DEPOSIT" ||
+                latestOrder.paymentStatus === "PAID_FULL";
+
+              if (isPaid) {
+                finalizeVnPaySuccess();
+                return;
+              }
+            } catch (statusErr) {
+              console.error("Final payment status check failed:", statusErr);
+            }
+
+            // User closed the payment window (X). Keep order pending.
+            enterRetryPaymentState(
+              "Payment window closed. You can retry VNPay payment here.",
+            );
+          })();
+
+          return;
+        }
+
+        try {
+          const updatedOrder = await getOrderDetails(orderId);
+
+          if (
+            updatedOrder.paymentStatus === "PAID" ||
+            updatedOrder.paymentStatus === "PAID_DEPOSIT" ||
+            updatedOrder.paymentStatus === "PAID_FULL"
+          ) {
+            clearInterval(pollInterval);
+            popup?.close();
+            finalizeVnPaySuccess();
+            return;
+          }
+        } catch (pollErr) {
+          console.error("Polling error:", pollErr);
+        }
+      }, 3000);
+
+      // Auto-stop polling after 10 minutes if still unresolved
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        if (!paymentHandledRef.current) {
+          enterRetryPaymentState(
+            "Payment confirmation timeout. You can retry VNPay payment here.",
+          );
+        }
+      }, 600000);
+    },
+    [
+      cancelPendingOrderAndExit,
+      enterRetryPaymentState,
+      finalizeVnPaySuccess,
+      showToast,
+    ],
+  );
+
   useEffect(() => {
     const handleVnPayResult = async (payload) => {
       if (!payload || payload.type !== "VNPAY_RESULT") return;
@@ -322,9 +456,13 @@ function CheckoutPage() {
         return;
       }
 
-      await cancelPendingOrderAndExit(
-        pendingOrderId,
-        "Payment failed or cancelled.",
+      // IMPORTANT: Do NOT auto-cancel the order when customer closes VNPay
+      // window or cancels the transaction. Keep it PENDING/UNPAID so they can
+      // retry payment from My Orders.
+      enterRetryPaymentState(
+        payload.responseCode === "24"
+          ? "Payment cancelled. You can retry VNPay payment here."
+          : "Payment was not completed. You can retry VNPay payment here.",
       );
     };
 
@@ -349,10 +487,22 @@ function CheckoutPage() {
       window.removeEventListener("message", onMessage);
       window.removeEventListener("storage", onStorage);
     };
-  }, [cancelPendingOrderAndExit, finalizeVnPaySuccess, pendingOrderId]);
+  }, [enterRetryPaymentState, finalizeVnPaySuccess, pendingOrderId]);
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
+
+    // If an order is already created and VNPay payment needs retry,
+    // do NOT create a new order. Just re-open VNPay for the same order.
+    if (
+      paymentMethod === "VNPAY" &&
+      paymentNeedsRetry &&
+      pendingOrderId &&
+      pendingPaymentAmount
+    ) {
+      await beginVnpayPaymentFlow(pendingOrderId, pendingPaymentAmount);
+      return;
+    }
 
     const currentUser =
       localStorage.getItem("currentUser") || localStorage.getItem("token");
@@ -387,8 +537,6 @@ function CheckoutPage() {
 
       // ✅ VNPay Payment Flow (Popup + Polling)
       if (paymentMethod === "VNPAY") {
-        paymentHandledRef.current = false;
-        setPendingOrderId(order.orderId);
         let amountToPay = 0;
         const hasPreorder = cartItems.some((i) => i.isPreorder);
 
@@ -404,91 +552,7 @@ function CheckoutPage() {
           amountToPay = order.finalPrice;
         }
 
-        const paymentUrl = await createVNPayPayment(amountToPay, order.orderId);
-
-        // Open Popup
-        const width = 600,
-          height = 700;
-        const left = window.innerWidth / 2 - width / 2;
-        const top = window.innerHeight / 2 - height / 2;
-        const popup = window.open(
-          paymentUrl,
-          "VNPay Payment",
-          `width=${width},height=${height},left=${left},top=${top}`,
-        );
-
-        if (!popup) {
-          await cancelPendingOrderAndExit(
-            order.orderId,
-            "Unable to open VNPay window. Please allow popups and try again.",
-          );
-          return;
-        }
-
-        setPaymentWindow(popup);
-        setWaitingPayment(true);
-        let popupCloseHandled = false;
-
-        // Start Polling backend for payment confirmation
-        const pollInterval = setInterval(async () => {
-          if (paymentHandledRef.current) {
-            clearInterval(pollInterval);
-            return;
-          }
-
-          if (popup.closed && !popupCloseHandled) {
-            popupCloseHandled = true;
-            clearInterval(pollInterval);
-
-            (async () => {
-              try {
-                const latestOrder = await getOrderDetails(order.orderId);
-                const isPaid =
-                  latestOrder.paymentStatus === "PAID" ||
-                  latestOrder.paymentStatus === "PAID_FULL";
-
-                if (isPaid) {
-                  finalizeVnPaySuccess();
-                  return;
-                }
-              } catch (statusErr) {
-                console.error("Final payment status check failed:", statusErr);
-              }
-
-              await cancelPendingOrderAndExit(
-                order.orderId,
-                "Payment window closed.",
-              );
-            })();
-
-            return;
-          }
-
-          try {
-            const updatedOrder = await getOrderDetails(order.orderId);
-
-            if (
-              updatedOrder.paymentStatus === "PAID" ||
-              updatedOrder.paymentStatus === "PAID_FULL"
-            ) {
-              clearInterval(pollInterval);
-              popup?.close();
-              finalizeVnPaySuccess();
-              return;
-            }
-          } catch (pollErr) {
-            console.error("Polling error:", pollErr);
-          }
-        }, 3000);
-
-        // Auto-stop polling after 10 minutes if still unresolved
-        setTimeout(() => {
-          clearInterval(pollInterval);
-          if (!paymentHandledRef.current) {
-            clearPaymentState();
-            showToast("Payment confirmation timeout. Please check My Orders.");
-          }
-        }, 600000);
+        await beginVnpayPaymentFlow(order.orderId, amountToPay);
         return;
       }
 
@@ -820,41 +884,78 @@ function CheckoutPage() {
               className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl"
             >
               <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                <FiCreditCard size={32} className="animate-pulse" />
+                <FiCreditCard
+                  size={32}
+                  className={paymentNeedsRetry ? "" : "animate-pulse"}
+                />
               </div>
               <h3 className="text-xl font-bold text-stone-900 mb-2">
-                Awaiting Payment
+                {paymentNeedsRetry
+                  ? "Payment not completed"
+                  : "Awaiting Payment"}
               </h3>
               <p className="text-sm text-stone-500 mb-8 leading-relaxed">
-                A secure payment window has been opened. Please complete your
-                transaction there.
+                {paymentNeedsRetry
+                  ? "Your order is still pending. You can retry VNPay payment without creating a new order."
+                  : "A secure payment window has been opened. Please complete your transaction there."}
               </p>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-center gap-3 text-blue-600 font-bold text-xs uppercase tracking-widest bg-blue-50 py-3 rounded-2xl">
-                  <div className="w-4 h-4 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin" />
-                  Waiting for response...
-                </div>
+                {!paymentNeedsRetry ? (
+                  <>
+                    <div className="flex items-center justify-center gap-3 text-blue-600 font-bold text-xs uppercase tracking-widest bg-blue-50 py-3 rounded-2xl">
+                      <div className="w-4 h-4 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin" />
+                      Waiting for response...
+                    </div>
 
-                <button
-                  onClick={() => paymentWindow?.focus()}
-                  className="w-full py-4 text-stone-400 hover:text-stone-900 text-xs font-bold uppercase tracking-widest transition-colors"
-                >
-                  Click here if window is hidden
-                </button>
+                    <button
+                      onClick={() => paymentWindow?.focus()}
+                      className="w-full py-4 text-stone-400 hover:text-stone-900 text-xs font-bold uppercase tracking-widest transition-colors"
+                    >
+                      Click here if window is hidden
+                    </button>
 
-                <button
-                  onClick={async () => {
-                    paymentWindow?.close();
-                    await cancelPendingOrderAndExit(
-                      pendingOrderId,
-                      "Payment cancelled.",
-                    );
-                  }}
-                  className="w-full py-3 rounded-2xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold uppercase tracking-widest transition-colors"
-                >
-                  I cancelled payment
-                </button>
+                    <button
+                      onClick={async () => {
+                        paymentWindow?.close();
+                        await cancelPendingOrderAndExit(
+                          pendingOrderId,
+                          "Payment cancelled.",
+                        );
+                      }}
+                      className="w-full py-3 rounded-2xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold uppercase tracking-widest transition-colors"
+                    >
+                      I cancelled payment
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={async () => {
+                        if (!pendingOrderId || !pendingPaymentAmount) {
+                          showToast(
+                            "Missing payment context. Please try again.",
+                          );
+                          return;
+                        }
+                        await beginVnpayPaymentFlow(
+                          pendingOrderId,
+                          pendingPaymentAmount,
+                        );
+                      }}
+                      className="w-full py-4 rounded-2xl bg-black text-white text-xs font-bold uppercase tracking-widest hover:bg-stone-800 transition-colors"
+                    >
+                      Pay again
+                    </button>
+
+                    <button
+                      onClick={() => setWaitingPayment(false)}
+                      className="w-full py-3 rounded-2xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold uppercase tracking-widest transition-colors"
+                    >
+                      Close
+                    </button>
+                  </>
+                )}
               </div>
             </motion.div>
           </motion.div>
