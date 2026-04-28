@@ -241,7 +241,7 @@ function OrderHistoryPage() {
       const status = normalizePaymentToken(order?.paymentStatus);
 
       if (method !== "VNPAY") return false;
-      return ["PAID", "PAID_FULL"].includes(status);
+      return ["PAID", "PAID_DEPOSIT", "PAID_FULL"].includes(status);
     },
     [normalizePaymentToken],
   );

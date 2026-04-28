@@ -165,6 +165,7 @@ function ShippingProgressPage() {
 
     return [
       "PAID",
+      "PAID_DEPOSIT",
       "PAID_FULL",
       "FULLY_PAID",
       "PAID_IN_FULL",
@@ -389,20 +390,18 @@ function ShippingProgressPage() {
       : Math.max(orderStep, shipmentStep);
 
   const remainingAmount = getRemainingAmount(order);
-
-  const remainingPaymentMethod = normalizePaymentToken(
-    order?.remainingPaymentMethod ??
-      order?.finalPaymentMethod ??
-      order?.balancePaymentMethod,
+  const remainingMethodToken = normalizePaymentToken(
+    order?.remainingPaymentMethod,
   );
-
-  const isRemainingMethodCOD =
-    remainingPaymentMethod === "COD" ||
-    (remainingPaymentMethod === "" &&
-      normalizePaymentToken(order?.paymentMethod) === "COD");
-
+  const remainingStageToken = normalizePaymentToken(
+    order?.remainingPaymentStage,
+  );
+  const isRemainingMethodCOD = remainingMethodToken === "COD";
   const isAwaitingManualConfirmation =
-    !isRemainingPaid(order) && remainingAmount > 0 && isRemainingMethodCOD;
+    !isRemainingPaid(order) &&
+    remainingAmount > 0 &&
+    isRemainingMethodCOD &&
+    remainingStageToken === "PENDING_CONFIRMATION";
   const vnpayPaid = isVnpayPaidOrder(order);
 
   const canShowRemainingPayment =
